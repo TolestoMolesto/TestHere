@@ -1,0 +1,24 @@
+{
+  // ── luau-lsp ──────────────────────────────────────────────
+  // Argon (not Rojo) owns sync. Disable the extension's built-in rojo
+  // sourcemap autogeneration and read the sourcemap Argon maintains.
+  // Keep it fresh by running:  argon serve --sourcemap
+  "luau-lsp.sourcemap.enabled": true,
+  "luau-lsp.sourcemap.autogenerate": false,
+  "luau-lsp.sourcemap.sourcemapFile": "sourcemap.json",
+  "luau-lsp.platform.type": "roblox",
+  "luau-lsp.ignoreGlobs": [
+    "**/PlayerModule/**",
+    "**/RbxCharacterSounds/**",
+    "**/ProfileStore.luau",
+    "Packages/**",
+    "ServerPackages/**",
+    "DevPackages/**"
+  ],
+
+  // ── Formatting ────────────────────────────────────────────
+  // StyLua reads stylua.toml + .styluaignore automatically.
+  "[luau]": {
+    "editor.defaultFormatter": "JohnnyMorganz.stylua"
+  }
+}

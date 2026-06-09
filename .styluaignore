@@ -1,0 +1,11 @@
+# Vendored Roblox default scripts — not ours, leave untouched
+src/StarterPlayer/StarterPlayerScripts/PlayerModule/
+RbxCharacterSounds/
+
+# Vendored third-party library (loleris)
+ProfileStore.luau
+
+# Wally package directories
+Packages/
+ServerPackages/
+DevPackages/

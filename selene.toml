@@ -1,0 +1,18 @@
+# selene — Luau linter config.
+# Roblox standard library is bundled with selene (std = "roblox"); no manual generation needed.
+std = "roblox"
+
+exclude = [
+    "src/StarterPlayer/StarterPlayerScripts/PlayerModule/**", # vendored Roblox scripts
+    "**/RbxCharacterSounds/**",                                # vendored Roblox scripts
+    "**/ProfileStore.luau",                                    # vendored 3rd-party (loleris)
+    "Packages/**",
+    "ServerPackages/**",
+    "DevPackages/**",
+]
+
+[lints]
+shadowing = "warn"
+unused_variable = "warn"
+empty_if = "warn"
+multiple_statements = "allow"
