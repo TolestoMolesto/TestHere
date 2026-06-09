@@ -1,0 +1,19 @@
+# Normalize line endings to LF so StyLua (eol=lf) and Git stay in sync on Windows
+# (overrides core.autocrlf=true, which would otherwise check files out as CRLF).
+* text=auto eol=lf
+
+# Source
+*.luau text eol=lf
+*.lua  text eol=lf
+
+# Config / data
+*.toml text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.ps1  text eol=lf
+
+# Roblox place / model files are binary — never normalize or diff
+*.rbxl  binary
+*.rbxlx binary
+*.rbxm  binary
+*.rbxmx binary
