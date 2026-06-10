@@ -212,7 +212,7 @@ local RARITY_RANK: { [string]: number } = {
 
 -- Roster as a stable array, sorted by type, then rarity rank, then display name (UI ordering).
 function ItemConfig.list(): { { id: string, def: ItemDef } }
-	local out: { { id: string, def: def } } = {}
+	local out: { { id: string, def: ItemDef } } = {}
 	for id, def in items do
 		table.insert(out, { id = id, def = def })
 	end
