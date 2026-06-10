@@ -1,38 +1,24 @@
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage = game:GetService("ServerStorage")
 
-local Manager = require(ServerStorage.Modules.Manager)
 local Remotes = require(ReplicatedStorage.Modules.Remotes)
 
 local COMBAT_TAG_EXTEND_BY = 30
 local COMBAT_TAG_MAX_DURATION = 180
 local CombatTag = {}
 
-local function getStatus(character: Model): Folder?
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	return if humanoid then humanoid:FindFirstChild("Status") :: Folder? else nil
-end
-
 local function clearCombatTag(character: Model): ()
 	if not character or not character.Parent then
 		return
 	end
 
-	local status = getStatus(character)
-	if not status then return end
-
-	status:SetAttribute("CombatTag", false)
-	status:SetAttribute("CombatTimerRunning", false)
-	status:SetAttribute("CombatTime", 0)
+	character:SetAttribute("CombatTag", false)
+	character:SetAttribute("CombatTimerRunning", false)
+	character:SetAttribute("CombatTime", 0)
 
 	local playerFound = Players:GetPlayerFromCharacter(character)
-
 	if playerFound then
-		local playerProfile = Manager.getProfile(playerFound)
-		playerProfile.Data.Stats.CombatTag = false
-
 		Remotes.CombatTagEnded:FireClient(playerFound)
 	end
 end
@@ -42,11 +28,8 @@ local function startCombatTimer(character: Model): ()
 		return
 	end
 
-	local status = getStatus(character)
-	if not status then return end
-
 	local now = os.time()
-	local currentTime = status:GetAttribute("CombatTime") or 0
+	local currentTime = character:GetAttribute("CombatTime") :: number? or 0
 
 	local newExpire
 	if now >= currentTime then
@@ -55,14 +38,14 @@ local function startCombatTimer(character: Model): ()
 		newExpire = math.min(currentTime + COMBAT_TAG_EXTEND_BY, now + COMBAT_TAG_MAX_DURATION)
 	end
 
-	status:SetAttribute("CombatTime", newExpire)
-	status:SetAttribute("CombatTag", true)
+	character:SetAttribute("CombatTime", newExpire)
+	character:SetAttribute("CombatTag", true)
 
-	if status:GetAttribute("CombatTimerRunning") then
+	if character:GetAttribute("CombatTimerRunning") then
 		return
 	end
 
-	status:SetAttribute("CombatTimerRunning", true)
+	character:SetAttribute("CombatTimerRunning", true)
 
 	local playerFound = Players:GetPlayerFromCharacter(character)
 	if playerFound then
@@ -70,8 +53,8 @@ local function startCombatTimer(character: Model): ()
 	end
 
 	task.spawn(function()
-		while character and character.Parent and status:GetAttribute("CombatTimerRunning") do
-			local expireTime = status:GetAttribute("CombatTime") or 0
+		while character and character.Parent and character:GetAttribute("CombatTimerRunning") do
+			local expireTime = character:GetAttribute("CombatTime") :: number? or 0
 			if os.time() >= expireTime then
 				break
 			end
@@ -82,44 +65,22 @@ local function startCombatTimer(character: Model): ()
 	end)
 end
 
-function CombatTag.applyCombatTag(attackerPlayer: Player, targetCharacter: Model): ()
-	local targetPlayer = Players:GetPlayerFromCharacter(targetCharacter)
-	if not targetPlayer then
+function CombatTag.applyCombatTag(attackerCharacter: Model, targetCharacter: Model): ()
+	-- A shadow is a private sparring partner; fighting one never puts either side in combat.
+	if attackerCharacter:GetAttribute("IsShadow") or targetCharacter:GetAttribute("IsShadow") then
 		return
 	end
-
-	local attackerCharacter = attackerPlayer.Character
-	if attackerCharacter then
-		startCombatTimer(attackerCharacter)
-
-		local attackerProfile = Manager.getProfile(attackerPlayer)
-		if attackerProfile then
-			attackerProfile.Data.Stats.CombatTag = true
-		end
-	end
-
+	startCombatTimer(attackerCharacter)
 	startCombatTimer(targetCharacter)
-
-	local targetProfile = Manager.getProfile(targetPlayer)
-	if targetProfile then
-		targetProfile.Data.Stats.CombatTag = true
-	end
 end
 
-function CombatTag.forceClearCombatTag(player: Player): ()
-	clearCombatTag(player.Character :: Model)
+function CombatTag.forceClearCombatTag(character: Model): ()
+	clearCombatTag(character)
 end
 
-local function isTagged(character: Model): boolean
-	local status = getStatus(character)
-	if not status then return false end
-	return status:GetAttribute("CombatTag") == true and (status:GetAttribute("CombatTime") or 0) > os.time()
-end
-
-function CombatTag.isInCombat(player: Player): boolean
-	local character = player.Character
-	if not character then return false end
-	return isTagged(character)
+function CombatTag.isInCombat(character: Model): boolean
+	return character:GetAttribute("CombatTag") == true
+		and (character:GetAttribute("CombatTime") :: number? or 0) > os.time()
 end
 
 return CombatTag

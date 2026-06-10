@@ -1,21 +1,24 @@
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
-local Workspace = game:GetService("Workspace")
 
 local CameraShake = require(ServerStorage.Modules.CameraShake)
+local Animations = require(ReplicatedStorage.Modules.Animations)
 local Charge = require(ServerStorage.Modules.Charge)
 local CombatTag = require(ServerStorage.Modules.CombatTag)
 local Damage = require(ServerStorage.Modules.Damage)
+local FormState = require(ServerStorage.Modules.FormState)
 local HitFX = require(ServerStorage.Modules.HitFX)
 local HitStun = require(ServerStorage.Modules.HitStun)
 local Hitbox = require(ServerStorage.Modules.Hitbox)
 local Knockback = require(ServerStorage.Modules.Knockback)
 local ParryHandler = require(ServerStorage.Modules.ParryHandler)
+local Train = require(ServerStorage.Modules.Train)
 
+local LIGHT_BASE_DAMAGE = 5
 local COMBO_FINISHER_FORCE = 150
 local MAX_POSITION_DELTA_STUDS = 20
 local VANISH_WINDOW_DURATION = 1.5
-local RUNNER_HITBOX_SIZE_MULTIPLIER = 2
 local HITBOX_SIZE = Vector3.new(3, 7, 5)
 
 local function resolveAttackCFrame(invoker: Model, requestedCFrame: CFrame?): CFrame
@@ -36,45 +39,14 @@ local function resolveAttackCFrame(invoker: Model, requestedCFrame: CFrame?): CF
 	return CFrame.new(requestedCFrame.Position) * serverCFrame.Rotation
 end
 
-local function resolveHitboxSize(invoker: Model, isRunning: boolean?): Vector3
-	local hitboxSize = HITBOX_SIZE
-	local isFlying = invoker:GetAttribute("Flying") :: boolean? or invoker:GetAttribute("BoostFlying") :: boolean?
-
-	if not isFlying and isRunning then
-		hitboxSize *= RUNNER_HITBOX_SIZE_MULTIPLIER
-	end
-
-	return hitboxSize
-end
-
-local function applyPlayerHitEffects(attackerPlayer: Player, entity: Model, _lightDamage: number?)
-	CameraShake.shakePlayer(attackerPlayer, 1.5, 0.25)
-	CombatTag.applyCombatTag(attackerPlayer, entity)
-end
-
--- invoker is the attacking character Model (player or NPC).
--- requestedCFrame is the attack origin from the caller, if available.
-return function(invoker: Model, requestedCFrame: CFrame?, isRunning: boolean?): ()
+return function(invoker: Model, requestedCFrame: CFrame?): ()
 	local hrp = invoker:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not hrp then
 		return
 	end
 
-	if
-		invoker:GetAttribute("AttackCooldown")
-		or invoker:GetAttribute("Blocking")
-		or invoker:GetAttribute("HeavyCooldown")
-		or invoker:GetAttribute("HitByKnockBack")
-		or invoker:GetAttribute("InCustomization")
-		or invoker:GetAttribute("InSafeZone")
-		or invoker:GetAttribute("KiBlasting")
-		or invoker:GetAttribute("NoAttacking")
-		or invoker:GetAttribute("Stunned")
-		or invoker:GetAttribute("ToggleRagdoll")
-	then
-		return
-	end
-
+	-- State gating (cooldowns, Stunned, Resting, KiBlasting, etc.) is enforced centrally in
+	-- ActionController.perform via ActionConfig.LightAttack.blockedBy; reaching here means it passed.
 	local lastAttackTime = invoker:GetAttribute("LastAttackTime") :: number? or 0
 	local currentTime = DateTime.now().UnixTimestampMillis / 1_000
 
@@ -88,7 +60,7 @@ return function(invoker: Model, requestedCFrame: CFrame?, isRunning: boolean?): 
 	Charge.stop(invoker)
 
 	local handlingPerfectBlock = false
-	local combo = (invoker:GetAttribute("ComboCounter") :: number? or 0) + 1
+	local combo = (invoker:GetAttribute("AttackSequence") :: number? or 0) + 1
 	local currentCombo = combo
 	local stamina = invoker:GetAttribute("Stamina") :: number? or -1
 	local staminaNeeded = invoker:GetAttribute("StaminaNeeded") :: number? or 0
@@ -101,18 +73,23 @@ return function(invoker: Model, requestedCFrame: CFrame?, isRunning: boolean?): 
 	invoker:SetAttribute("AttackCooldown", true)
 	invoker:SetAttribute("CanBlock", false)
 	invoker:SetAttribute("Swinging", true)
-	invoker:SetAttribute("StaminaTime", 1)
-	invoker:SetAttribute("ComboCounter", combo)
+	invoker:SetAttribute("AttackSequence", combo)
 	invoker:SetAttribute("Stamina", stamina - staminaNeeded)
+
+	if not player then
+		Animations.playLightAttack(invoker, combo, Animations.attackSpeed(invoker))
+	end
 
 	task.wait(0.1)
 
 	task.delay(0.25, function(): ()
 		invoker:SetAttribute("Swinging", false)
+		-- CanBlock is cleared above so you can't guard mid-swing; nothing else resets it, so this is required.
+		invoker:SetAttribute("CanBlock", true)
 	end)
 
 	task.delay(1.2, function(): ()
-		if invoker:GetAttribute("ComboCounter") ~= currentCombo then
+		if invoker:GetAttribute("AttackSequence") ~= currentCombo then
 			return
 		end
 
@@ -120,17 +97,17 @@ return function(invoker: Model, requestedCFrame: CFrame?, isRunning: boolean?): 
 			invoker:GetAttributeChangedSignal("Blocking"):Wait()
 			task.wait(1.2)
 
-			if invoker:GetAttribute("ComboCounter") ~= currentCombo then
+			if invoker:GetAttribute("AttackSequence") ~= currentCombo then
 				return
 			end
 		end
 
-		invoker:SetAttribute("ComboCounter", 1)
+		invoker:SetAttribute("AttackSequence", 0)
 		invoker:SetAttribute("Attacking", false)
 	end)
 
-	if combo >= 5 then
-		invoker:SetAttribute("ComboCounter", 1)
+	if combo >= 4 then
+		invoker:SetAttribute("AttackSequence", 0)
 		invoker:SetAttribute("Attacking", false)
 
 		task.delay(0.7, function(): ()
@@ -139,44 +116,18 @@ return function(invoker: Model, requestedCFrame: CFrame?, isRunning: boolean?): 
 	end
 
 	local resolvedCFrame = resolveAttackCFrame(invoker, requestedCFrame)
-	local hitboxSize = resolveHitboxSize(invoker, isRunning)
+	local hitboxSize = HITBOX_SIZE
 
-	local hitbox = Hitbox.create(hitboxSize, resolvedCFrame * CFrame.new(0, 0, -hitboxSize.Z / 2), invoker)
-
-	local overlapParams = OverlapParams.new()
-	overlapParams.FilterDescendantsInstances = { invoker }
-	local parryHitboxDetected = false
-
-	for _, part in Workspace.Ignore.Hitboxes:GetChildren() do
-		if part:GetAttribute("IsParryHitbox") then
-			local partsInHitbox = Workspace:GetPartsInPart(hitbox, overlapParams)
-
-			for _, overlappingPart in partsInHitbox do
-				if overlappingPart == part then
-					parryHitboxDetected = true
-					break
-				end
-			end
-
-			if parryHitboxDetected then
-				break
-			end
-		end
-	end
-
-	local entities = Hitbox.processHitscan(hitbox, { invoker })
+	local entities = Hitbox.scanBox(resolvedCFrame * CFrame.new(0, 0, -hitboxSize.Z / 2), hitboxSize, { invoker })
 
 	for _, entity in entities do
-		if entity:GetAttribute("Blocking") then
-			local isDummy = not entity:FindFirstChild("Player")
+		local blockingFrontally = entity:GetAttribute("Blocking")
+			and Hitbox.isInFront(entity, (hrp :: BasePart).Position)
 
-			if entity:GetAttribute("PerfectBlocked") and (parryHitboxDetected or isDummy) then
+		if blockingFrontally then
+			if entity:GetAttribute("PerfectBlocked") then
 				handlingPerfectBlock = true
-
-				if not isDummy then
-					entity:SetAttribute("PerfectBlocked", false)
-					entity:SetAttribute("LastPerfectBlockTime", os.clock())
-				end
+				entity:SetAttribute("PerfectBlocked", false)
 
 				ParryHandler.parry(invoker, entity)
 
@@ -192,6 +143,7 @@ return function(invoker: Model, requestedCFrame: CFrame?, isRunning: boolean?): 
 
 			entity:SetAttribute("Stamina", newDefenderStamina)
 			HitFX.spawnBlockFX(entity, entity.HumanoidRootPart.Position)
+			Train.blocked(entity, invoker)
 
 			local attackerStamina: number = invoker:GetAttribute("Stamina") :: number? or 0
 			local attackerMaxStamina: number = invoker:GetAttribute("MaxStamina") :: number? or 100
@@ -216,18 +168,28 @@ return function(invoker: Model, requestedCFrame: CFrame?, isRunning: boolean?): 
 			continue
 		end
 
+		-- A return of 0 means the target dodged: the swing whiffs. Stamina was paid up-front,
+		-- but none of the on-hit reactions below land.
+		if Damage.apply(entity, invoker, LIGHT_BASE_DAMAGE, "Physical") == 0 then
+			Train.dodged(entity, invoker)
+			continue
+		end
+
+		FormState.awardCombatHit(invoker)
+		Train.landedLight(invoker, entity)
+
 		local attackerStamina = invoker:GetAttribute("Stamina") :: number? or 0
 		local attackerMaxStamina = invoker:GetAttribute("MaxStamina") :: number? or 100
-		local lightDamage = Damage.apply(entity, invoker, 1, "Physical")
-
 		invoker:SetAttribute("Stamina", math.min(attackerStamina + 3, attackerMaxStamina))
 		HitFX.spawnOnCharacter(entity, entity.HumanoidRootPart.Position)
 
+		CombatTag.applyCombatTag(invoker, entity)
+
 		if player then
-			applyPlayerHitEffects(player, entity, lightDamage)
+			CameraShake.shakePlayer(player, 1.5, 0.25)
 		end
 
-		if combo >= 5 then
+		if combo >= 4 then
 			entity:PivotTo(CFrame.lookAt(entity:GetPivot().Position, invoker:GetPivot().Position))
 			Knockback.apply(entity, (hrp :: BasePart).CFrame.LookVector, COMBO_FINISHER_FORCE)
 
@@ -245,10 +207,9 @@ return function(invoker: Model, requestedCFrame: CFrame?, isRunning: boolean?): 
 
 	task.wait(0.3)
 
-	hitbox:Destroy()
 	invoker:SetAttribute("Attacking", false)
 
-	if combo <= 4 and not handlingPerfectBlock then
+	if combo <= 3 and not handlingPerfectBlock then
 		invoker:SetAttribute("AttackCooldown", false)
 	end
 end

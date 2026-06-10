@@ -1,62 +1,53 @@
 --!strict
--- ─────────────────────────────────────────────
--- Damage.luau
--- All damage and healing flows through here.
--- Stats are read exclusively from the Humanoid.Stats folder attributes
--- written by StatsManager — no profile or TemporaryStats access.
---
--- Damage types: "Physical" | "Ki"
---
--- Formula:
---   raw   = (Damage + PhysicalDamage or KiDamage) * coefficient
---   raw   = max(raw, minimumDamage)
---   raw  *= 1 - PhysicalResistancePct  (Physical)
---        or 1 - KiResistancePct        (Ki)
---   raw  *= 1 - AllDamageReduction
---   final = floor(raw), clamped >= 0
---
--- Dodge is rolled first; a successful proc returns 0 without
--- calling TakeDamage.
--- ─────────────────────────────────────────────
 local Players = game:GetService("Players")
-local ServerStorage = game:GetService("ServerStorage")
 
 export type DamageCause = "Physical" | "Ki"
 
-local Damage = {}
+-- Universal damage floor: any landed hit deals at least this much (guarantees chip damage).
+local MIN_DAMAGE = 1
 
--- ── Helpers ───────────────────────────────────────────────────────────
+local Damage = {}
 
 local function getStatAttr(character: Model, attr: string): number
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then return 0 end
+	if not humanoid then
+		return 0
+	end
 	local folder = humanoid:FindFirstChild("Stats")
-	if not folder then return 0 end
+	if not folder then
+		return 0
+	end
 	return (folder:GetAttribute(attr) :: number?) or 0
 end
 
--- ── Public API ────────────────────────────────────────────────────────
-
--- Apply scaled damage to targetCharacter.
--- attackingCharacter may be nil (e.g. environmental damage).
--- Returns the final damage dealt, or 0 on a dodge / safe zone, or nil
--- if minimumDamage is not a number.
 function Damage.apply(
 	targetCharacter: Model,
 	attackingCharacter: Model?,
-	minimumDamage: number,
-	cause: DamageCause,
-	coefficient: number?
+	baseDamage: number,
+	cause: DamageCause
 ): number?
-	if typeof(minimumDamage) ~= "number" then return end
+	if typeof(baseDamage) ~= "number" then
+		return
+	end
 
-	-- Dodge check
+	-- Spawn protection / intangibility: a Forcefield target takes no damage at all. Return 0 -- a
+	-- whiff, like a dodge -- so every caller skips its on-hit reactions; never nil, which the melee/ki
+	-- callers read as "hit landed". (Scan/lock-on paths already exclude them; this is the backstop.)
+	if targetCharacter:GetAttribute("Forcefield") then
+		return 0
+	end
+
+	-- Dodge returns 0 (never the MIN_DAMAGE floor) so callers can detect a whiff and skip
+	-- their on-hit reactions; a landed hit always returns >= MIN_DAMAGE.
 	local dodgePct = getStatAttr(targetCharacter, "Dodge")
-	if math.random() < dodgePct then return 0 end
+	if math.random() < dodgePct then
+		return 0
+	end
 
-	-- Attacker Damage stat drives all damage output
 	local damageStat = if attackingCharacter then getStatAttr(attackingCharacter, "Damage") else 1
-	if damageStat <= 0 then damageStat = 1 end
+	if damageStat <= 0 then
+		damageStat = 1
+	end
 
 	local typeBonus = if attackingCharacter
 		then (if cause == "Physical"
@@ -64,21 +55,21 @@ function Damage.apply(
 			else getStatAttr(attackingCharacter, "KiDamage"))
 		else 0
 
-	local damage = math.max((damageStat + typeBonus) * (coefficient or 1), minimumDamage)
+	-- The move's flat Base Damage stacks on top of the attacker's Damage stat (+ type bonus).
+	local damage = damageStat + typeBonus + baseDamage
 
-	-- Type-specific resistance
 	if cause == "Physical" then
 		damage *= 1 - getStatAttr(targetCharacter, "PhysicalResistancePct")
 	elseif cause == "Ki" then
 		damage *= 1 - getStatAttr(targetCharacter, "KiResistancePct")
 	end
 
-	-- Universal damage reduction
 	damage *= 1 - getStatAttr(targetCharacter, "AllDamageReduction")
 
-	damage = math.max(math.floor(damage), 0)
+	-- Floor AFTER reductions so a landed hit always deals >= MIN_DAMAGE; flooring
+	-- earlier let resistance round low hits to 0 (combat tag + knockback but no damage).
+	damage = math.max(math.floor(damage), MIN_DAMAGE)
 
-	-- Record last attacker for kill credit
 	if attackingCharacter and targetCharacter:GetAttribute("IsShadow") ~= true then
 		local attackerPlayer = Players:GetPlayerFromCharacter(attackingCharacter)
 		if attackerPlayer then
@@ -88,7 +79,10 @@ function Damage.apply(
 
 	local humanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
 	if humanoid then
-		humanoid:TakeDamage(damage)
+		-- Never land the killing blow: leave >= 1 HP so the knockout system (StateBinders)
+		-- takes over with a ragdoll/revive instead of Humanoid.Died racing it.
+		local survivable = math.max(humanoid.Health - 1, 0)
+		humanoid:TakeDamage(math.min(damage, survivable))
 	end
 
 	return damage

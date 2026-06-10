@@ -1,25 +1,16 @@
--- ─────────────────────────────────────────────
--- ProfileLoader.server.luau
--- Handles: Profile loading, session management,
--- data migration, BindToClose saving.
---
--- ProfileLoaded contract:
---   On successful load we set the `ProfileLoaded` attribute first,
---   THEN fire the `ProfileLoaded` RemoteEvent. Clients should read
---   the attribute on init; if it's not yet true, connect to the
---   event and wait. This avoids the late-connect race where a
---   client registers its listener after the server has fired.
--- ─────────────────────────────────────────────
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
 local Manager = require(ServerStorage.Modules.Manager)
+local Monetization = require(ServerStorage.Modules.Monetization)
 local Remotes = require(ReplicatedStorage.Modules.Remotes)
 local RollRace = require(ServerStorage.Modules.RollRace)
 local StatsManager = require(ServerStorage.Modules.StatsManager)
 local Template = require(ServerStorage.Modules.TemplateData)
+
+-- Wire the single ProcessReceipt callback + game-pass purchase handling once, at server start.
+Monetization.init()
 
 local LOG = "[ProfileLoader]"
 local MAX_LOAD_RETRIES = 3
@@ -70,7 +61,6 @@ local function onPlayerAdded(player: Player)
 		return
 	end
 
-	-- Player may have left while StartSessionAsync was yielding.
 	if player.Parent ~= Players then
 		profile:EndSession()
 		return
@@ -79,14 +69,15 @@ local function onPlayerAdded(player: Player)
 	profile:AddUserId(player.UserId)
 	profile:Reconcile()
 
-	-- profile:Reconcile() walks string-keyed nested tables (so Shared
-	-- backfills automatically) but skips number-keyed entries, which
-	-- means every slot in profile.Data.Slots is invisible to it.
-	-- Reconcile each slot ourselves so new SlotData fields land on
-	-- existing saves the next time the player joins.
+	-- Reconcile() skips number-keyed entries, so Slots are invisible to it; patch each slot manually.
 	for _, slot in profile.Data.Slots do
 		Template.reconcileSlot(slot)
 	end
+	-- Global client preferences nest deeper than Reconcile() fills; patch them too.
+	Template.reconcileSettings(profile.Data)
+	Template.reconcileKeybinds(profile.Data)
+	-- Shared's newer roller fields (RollCount/GlobalPity/RedeemedCodes) need the same backfill.
+	Template.reconcileShared(profile.Data)
 
 	profile.OnSessionEnd:Connect(function()
 		Manager.Profiles[player] = nil
@@ -96,13 +87,13 @@ local function onPlayerAdded(player: Player)
 	end)
 	Manager.Profiles[player] = profile
 
-	-- Auto-roll the active slot if it has never been rolled (Race == "NA").
-	-- Must happen BEFORE LoadCharacter so the CharacterAdded handler in
-	-- StatsManager.bind sees the resolved race on the very first spawn.
+	-- Resolve game-pass ownership and apply unlocks before the character builds, so a pass that
+	-- unlocks a race is reflected on first spawn. Yields briefly on the ownership web calls.
+	Monetization.onProfileLoaded(player)
+
+	-- Must run before LoadCharacter so StatsManager.bind sees the resolved race on first spawn.
 	RollRace.autoRollActive(player)
 
-	-- Connect CharacterAdded BEFORE LoadCharacter so the mirror runs on
-	-- this spawn (and every respawn) without a manual first-shot call.
 	StatsManager.bind(player)
 
 	local loadSuccess, loadErr = pcall(function()
@@ -114,8 +105,7 @@ local function onPlayerAdded(player: Player)
 		return
 	end
 
-	-- Attribute is race-safe for clients that connect late; the event
-	-- covers clients that are already listening.
+	-- Attribute guards late-connecting clients; event covers clients already listening.
 	player:SetAttribute("ProfileLoaded", true)
 	Remotes.ProfileLoaded:FireClient(player)
 end
@@ -133,8 +123,6 @@ Players.PlayerAdded:Connect(function(player)
 end)
 Players.PlayerRemoving:Connect(onPlayerRemoving)
 
--- Save all active profiles concurrently on shutdown so a slow save
--- doesn't gate the rest within BindToClose's 30s window.
 game:BindToClose(function()
 	local players = Players:GetPlayers()
 	local remaining = #players

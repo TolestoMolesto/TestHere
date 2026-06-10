@@ -1,32 +1,25 @@
 --!strict
--- ─────────────────────────────────────────────
--- RollRace.luau
--- Race assignment for SlotData.
---
--- Lifecycle:
---   • New slots start with Race = "NA".
---   • The first time a slot is activated we auto-roll for FREE
---     (RollRace.autoRoll). The very first roll is "on us".
---   • Subsequent rolls cost 1 Shared.Spins (RollRace.reroll).
---
--- Global races (ANGEL / GOD / KAI) are placeholder rolls. When one
--- lands, the slot's Race holds the global name and callers should
--- surface a picker UI; the player resolves it via RollRace.pickRace
--- by choosing any unlocked basic race.
--- ─────────────────────────────────────────────
 
 local ServerStorage = game:GetService("ServerStorage")
 
 local GlobalRaceRegistry = require(ServerStorage.Modules.GlobalRaceRegistry)
-local Manager            = require(ServerStorage.Modules.Manager)
-local RaceNames          = require(ServerStorage.Modules.RaceNames)
-local RaceStats          = require(ServerStorage.Modules.RaceStats)
+local Manager = require(ServerStorage.Modules.Manager)
+local RaceNames = require(ServerStorage.Modules.RaceNames)
+local RaceStats = require(ServerStorage.Modules.RaceStats)
 
 local NA = "NA"
 local FALLBACK_RACE = "Human"
-local GLOBAL_RACE_CHANCE = 10000
 local LSSJ_CHANCE = 10000
 local REROLL_COST = 1
+
+-- Global-race odds with pity. Basic-race odds stay uniform; only the chance to enter the global
+-- branch is affected. The chance starts at GLOBAL_BASE_CHANCE and ramps with GlobalPity (rolls since
+-- the last global), reaching a guaranteed 1.0 at PITY_GUARANTEE. PITY_CURVE shapes the ramp: 1 is a
+-- straight line (generous early); higher values keep the odds near base for longer and concentrate
+-- the boost near the guarantee, so PITY_GUARANTEE stays a meaningful bad-luck ceiling. Tune freely.
+local GLOBAL_BASE_CHANCE = 1 / 10000
+local PITY_GUARANTEE = 10000
+local PITY_CURVE = 3
 
 type BasicRace = {
 	Name: string,
@@ -34,12 +27,12 @@ type BasicRace = {
 }
 
 local BASIC_RACES: { BasicRace } = {
-	{ Name = "Human",    UnlockFlag = nil },
+	{ Name = "Human", UnlockFlag = nil },
 	{ Name = "Namekian", UnlockFlag = nil },
 	{ Name = "Acrosian", UnlockFlag = nil },
-	{ Name = "Majin",    UnlockFlag = "Majin" },
-	{ Name = "Saiyan",   UnlockFlag = nil },
-	{ Name = "Sphinx",   UnlockFlag = nil },
+	{ Name = "Majin", UnlockFlag = "Majin" },
+	{ Name = "Saiyan", UnlockFlag = nil },
+	{ Name = "Sphinx", UnlockFlag = nil },
 }
 
 local GLOBAL_RACES: { string } = { "ANGEL", "GOD", "KAI" }
@@ -48,12 +41,12 @@ local RNG = Random.new()
 
 local RollRace = {}
 
--- Returns the uppercase global race name ("ANGEL", "GOD", "KAI") if the
--- given slot is recorded as its holder in Shared.GlobalRaces, or nil.
--- Keys are stored as "Angel"/"God"/"Kai" so we uppercase before returning.
+-- Keys stored as "Angel"/"God"/"Kai" in Shared.GlobalRaces; uppercase on return.
 local function getGlobalRaceForSlot(player: Player, slotIndex: number): string?
 	local shared = Manager.getShared(player)
-	if not shared then return nil end
+	if not shared then
+		return nil
+	end
 	for raceName, heldSlot in shared.GlobalRaces do
 		if heldSlot == slotIndex then
 			return raceName:upper() -- "Angel" → "ANGEL"
@@ -62,10 +55,6 @@ local function getGlobalRaceForSlot(player: Player, slotIndex: number): string?
 	return nil
 end
 
--- Pick a random name from the race pool and write it to the slot.
--- Also applies the race's base stats. No-op on empty pools.
--- If Shared.GlobalRaces shows this slot holds a global race, names are
--- drawn from that global's pool (ANGEL/GOD/KAI) instead of the basic race.
 local function assignRandomName(player: Player, slotIndex: number, slot: any, race: string)
 	local globalRace = getGlobalRaceForSlot(player, slotIndex)
 	local nameRace = if globalRace then globalRace else race
@@ -95,12 +84,26 @@ local function buildBasicPool(player: Player): { string }
 	return pool
 end
 
+-- Per-roll probability of entering the global branch, given pity (rolls since the last global).
+local function computeGlobalChance(pity: number): number
+	if pity >= PITY_GUARANTEE then
+		return 1
+	end
+	local t = pity / PITY_GUARANTEE
+	return math.clamp(GLOBAL_BASE_CHANCE + (1 - GLOBAL_BASE_CHANCE) * t ^ PITY_CURVE, GLOBAL_BASE_CHANCE, 1)
+end
+
 local function rollOnce(player: Player): string
+	local shared = Manager.getShared(player)
 	local basicPool = buildBasicPool(player)
 	if #basicPool == 0 then
 		return FALLBACK_RACE
 	end
-	if RNG:NextInteger(1, GLOBAL_RACE_CHANCE) == 1 then
+	if shared then
+		shared.RollCount += 1
+	end
+	local pity = if shared then shared.GlobalPity else 0
+	if RNG:NextNumber() < computeGlobalChance(pity) then
 		-- Only include global races that still have open roll slots.
 		local available: { string } = {}
 		for _, name in GLOBAL_RACES do
@@ -109,11 +112,32 @@ local function rollOnce(player: Player): string
 			end
 		end
 		if #available > 0 then
+			if shared then
+				shared.GlobalPity = 0 -- a global landed: pity resets
+			end
 			return available[RNG:NextInteger(1, #available)]
 		end
-		-- All global races are at roll capacity — fall through to basic.
+		-- A global was due but every race is at roll capacity: hold pity (don't reset) so the
+		-- guarantee carries to the next roll, and fall through to a basic this time.
+	end
+	if shared then
+		shared.GlobalPity += 1
 	end
 	return basicPool[RNG:NextInteger(1, #basicPool)]
+end
+
+-- True if this slot currently has a global, either as a pending pick (slot.Race is "ANGEL"/etc, not
+-- yet converted) or as a claimed holder recorded in Shared.GlobalRaces. Used to gate reroll.
+local function holdsGlobal(slotIndex: number, slot: any, shared: any): boolean
+	if RollRace.isGlobalRace(slot.Race) then
+		return true
+	end
+	for _, heldSlot in shared.GlobalRaces do
+		if heldSlot == slotIndex then
+			return true
+		end
+	end
+	return false
 end
 
 function RollRace.isGlobalRace(raceName: string): boolean
@@ -125,15 +149,10 @@ function RollRace.isGlobalRace(raceName: string): boolean
 	return false
 end
 
--- Returns the list of selectable names for the given race.
--- Returns an empty table if the race has no defined name list.
 function RollRace.getNamesForRace(raceName: string): { string }
 	return RaceNames.get(raceName)
 end
 
--- Validate and apply a name choice for a slot.
--- If Shared.GlobalRaces ties this slot to a global race, names must come
--- from that global's pool; otherwise the slot's basic race pool is used.
 function RollRace.pickName(player: Player, slotIndex: number, name: string): (boolean, string?)
 	local slot = Manager.getSlot(player, slotIndex)
 	if not slot then
@@ -154,15 +173,6 @@ function RollRace.pickName(player: Player, slotIndex: number, name: string): (bo
 	return false, "Name is not available for this race"
 end
 
--- One-shot LegendarySuperSaiyan upgrade check. Call this from CharacterAdded
--- (via StatsManager) on every spawn so it fires on the first spawn after a
--- Saiyan roll. Subsequent spawns are no-ops until the race is reassigned.
---
--- Returns:
---   (true,  nil)               → LegendarySuperSaiyan awarded
---   (false, "failed")          → checked but lost the roll
---   (false, "already_checked") → check already ran for this Saiyan roll
---   (false, "not_saiyan")      → slot race is not Saiyan, nothing to do
 function RollRace.checkLSSJ(player: Player, slotIndex: number): (boolean, string?)
 	local slot = Manager.getSlot(player, slotIndex)
 	if not slot then
@@ -183,8 +193,6 @@ function RollRace.checkLSSJ(player: Player, slotIndex: number): (boolean, string
 	return false, "failed"
 end
 
--- Free roll. No-op if the slot already has a non-NA race so we never
--- silently overwrite a real race on re-entry.
 function RollRace.autoRoll(player: Player, slotIndex: number): string?
 	local slot = Manager.getSlot(player, slotIndex)
 	if not slot then
@@ -199,8 +207,6 @@ function RollRace.autoRoll(player: Player, slotIndex: number): string?
 	return slot.Race
 end
 
--- Convenience for the join flow: roll the currently active slot if it
--- has never been rolled.
 function RollRace.autoRollActive(player: Player): string?
 	local profile = Manager.getProfile(player)
 	if not profile then
@@ -209,11 +215,7 @@ function RollRace.autoRollActive(player: Player): string?
 	return RollRace.autoRoll(player, profile.Data.ActiveSlot)
 end
 
--- Paid reroll. Returns (newRace, nil) on success, (nil, reason) on failure.
--- Spins are only deducted after the slot/profile checks pass.
--- If the slot currently holds a global race, the player is removed from
--- the global registry before the new race is assigned.
-function RollRace.reroll(player: Player, slotIndex: number): (string?, string?)
+function RollRace.reroll(player: Player, slotIndex: number, confirmed: boolean?): (string?, string?)
 	local slot = Manager.getSlot(player, slotIndex)
 	if not slot then
 		return nil, "Slot not found"
@@ -221,6 +223,11 @@ function RollRace.reroll(player: Player, slotIndex: number): (string?, string?)
 	local shared = Manager.getShared(player)
 	if not shared then
 		return nil, "Profile not loaded"
+	end
+	-- Rerolling releases any held/pending global back to the registry -- i.e. you lose it. Require an
+	-- explicit confirmation so a stray click (or an auto-spin) can't throw away something this rare.
+	if not confirmed and holdsGlobal(slotIndex, slot, shared) then
+		return nil, "needs_confirmation"
 	end
 	if shared.Spins < REROLL_COST then
 		return nil, "Not enough spins"
@@ -242,11 +249,6 @@ function RollRace.reroll(player: Player, slotIndex: number): (string?, string?)
 	return slot.Race, nil
 end
 
--- Resolve a global-race placeholder by picking any unlocked basic.
--- Rejected if the slot isn't currently holding a global, or the
--- chosen race isn't in the player's unlocked basic pool.
--- On success this also claims the global-race slot in the registry
--- and records the slot index in Shared.GlobalRaces.
 function RollRace.pickRace(player: Player, slotIndex: number, raceName: string): (boolean, string?)
 	local slot = Manager.getSlot(player, slotIndex)
 	if not slot then
@@ -262,16 +264,13 @@ function RollRace.pickRace(player: Player, slotIndex: number, raceName: string):
 	end
 	for _, allowed in buildBasicPool(player) do
 		if allowed == raceName then
-			-- Attempt to register in the global DataStore first so we
-			-- never write the race locally if the registry is full.
 			local claimed, reason = GlobalRaceRegistry.claim(player.UserId, pendingGlobal, true)
 			if not claimed then
 				return false, reason or "Failed to claim global race slot"
 			end
 			slot.Race = raceName
 			slot.LSSJChecked = false
-			-- Write shared.GlobalRaces BEFORE assignRandomName so the lookup
-			-- inside it sees this slot as a global-race holder.
+			-- Must write GlobalRaces BEFORE assignRandomName so getGlobalRaceForSlot sees it.
 			local normalized = pendingGlobal:sub(1, 1):upper() .. pendingGlobal:sub(2):lower()
 			shared.GlobalRaces[normalized] = slotIndex
 			assignRandomName(player, slotIndex, slot, raceName)
@@ -279,6 +278,46 @@ function RollRace.pickRace(player: Player, slotIndex: number, raceName: string):
 		end
 	end
 	return false, "Race not unlocked"
+end
+
+-- === State helpers for the Race Roller UI (RollServer assembles GetRollState from these) =========
+
+RollRace.PITY_GUARANTEE = PITY_GUARANTEE
+
+-- Current per-roll global chance for this many dry rolls (0..1). Exposed so the UI can display it.
+function RollRace.globalChance(pity: number): number
+	return computeGlobalChance(pity)
+end
+
+-- The unlocked basic races this player can actually roll (respects unlock flags).
+function RollRace.unlockedBasics(player: Player): { string }
+	return buildBasicPool(player)
+end
+
+-- Every basic race with its unlock state, for the collection list (so locked races still show).
+function RollRace.allBasics(player: Player): { { name: string, unlocked: boolean } }
+	local shared = Manager.getShared(player)
+	local unlocks = if shared then shared.Unlocks else nil
+	local out: { { name: string, unlocked: boolean } } = {}
+	for _, race in BASIC_RACES do
+		table.insert(out, { name = race.Name, unlocked = isUnlocked(unlocks, race.UnlockFlag) })
+	end
+	return out
+end
+
+-- The global race ids in roll order, for the UI's global panel.
+function RollRace.globalRaces(): { string }
+	return table.clone(GLOBAL_RACES)
+end
+
+-- Whether a slot currently holds a global (pending pick or claimed). Gates the reroll confirmation.
+function RollRace.hasGlobal(player: Player, slotIndex: number): boolean
+	local slot = Manager.getSlot(player, slotIndex)
+	local shared = Manager.getShared(player)
+	if not slot or not shared then
+		return false
+	end
+	return holdsGlobal(slotIndex, slot, shared)
 end
 
 return RollRace

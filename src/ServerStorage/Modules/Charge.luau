@@ -1,280 +1,96 @@
 --!strict
--- TODO: Make this work for entities as well
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage = game:GetService("ServerStorage")
-local Workspace = game:GetService("Workspace")
-
-local Character = require(ReplicatedStorage.Modules.Character)
-local Colour = require(ServerStorage.Modules.Colour)
-local Manager = require(ServerStorage.PlayerData.Manager)
-local Raycast = require(ReplicatedStorage.Modules.Raycast)
-local SharedTypes = require(ReplicatedStorage.Modules.Types)
-local SharedUtilities = require(ReplicatedStorage.Modules.Utilities)
-local SparkingMode = require(ServerStorage.Modules.SparkingMode)
-local Types = require(ServerStorage.Modules.Types)
-
-local SPARKING_MODE_DRAIN_RATE = 0.02
-local EFFECTS = script.Effects
-local FLOOR_EFFECTS = script.FloorEffects
-local SPARKING_MODE_EFFECTS = script.SparkingModeEffects
-local SPARKING_MODE_FLOOR_EFFECTS = script.SparkingModeFloorEffects
 local Charge = {}
 
-local effectObjectCache =
-	setmetatable({} :: { [Model]: { Instance & (Colour.Effect | Colour.PhysicalEffectObject) } }, { __mode = "k" })
+local KI_REGEN_PER_SECOND = 25
+local TICK = 0.1
 
-local function cacheEffectObject(
-	entityCharacter: Types.EntityCharacter,
-	effect: Colour.Effect | Colour.PhysicalEffectObject
-): ()
-	if not effectObjectCache[entityCharacter] then
-		effectObjectCache[entityCharacter] = { effect }
+local generation = setmetatable({} :: { [Model]: number }, { __mode = "k" })
+local watchers = setmetatable({} :: { [Model]: { RBXScriptConnection } }, { __mode = "k" })
 
+local function disconnectWatchers(character: Model): ()
+	local conns = watchers[character]
+	if conns then
+		for _, c in conns do
+			c:Disconnect()
+		end
+		watchers[character] = nil
+	end
+end
+
+local function interrupted(character: Model): boolean
+	return character:GetAttribute("Stunned") == true or character:GetAttribute("HitByKnockBack") == true
+end
+
+local function canCharge(character: Model): boolean
+	if character:GetAttribute("Charging") then
+		return false
+	end
+	return not (
+		interrupted(character)
+		or character:GetAttribute("Attacking")
+		or character:GetAttribute("Blocking")
+		or character:GetAttribute("BlockBroken")
+		or character:GetAttribute("ToggleRagdoll")
+		or character:GetAttribute("InCustomization")
+	)
+end
+
+function Charge.start(character: Model): ()
+	if not character or not character.Parent or not canCharge(character) then
 		return
 	end
 
-	table.insert(effectObjectCache[entityCharacter], effect)
-end
+	character:SetAttribute("Charging", true)
+	character:SetAttribute("CanBlock", false)
 
-local function clearCacheEntry(entityCharacter: Model): ()
-	effectObjectCache[entityCharacter] = {}
-end
-
-local function weldTo(entityCharacter: Types.EntityCharacter, object: BasePart): WeldConstraint
-	local weld = Instance.new("WeldConstraint")
-	weld.Part0 = object
-	weld.Part1 = entityCharacter.PrimaryPart :: BasePart
-	weld.Parent = entityCharacter
-
-	return weld
-end
-
-local function directlyAboveFloor(playerCharacter: Character.Type): boolean
-	return if Raycast.execute(playerCharacter.HumanoidRootPart.Position, Vector3.new(0, -10, 0), {
-			FilterDescendantsInstances = {
-				Workspace.Dummies,
-				Workspace.Hitboxes,
-				Workspace.NPCs,
-				Workspace.Players,
-				Workspace.QuestNPCs,
-				Workspace.Regions,
-				Workspace.Shadows,
-			},
-		})
-		then true
-		else false
-end
-
-local function generateAura(playerCharacter: Character.Type, playerKiColour: Color3): ()
-	for _, effect in EFFECTS:GetChildren() :: { Instance & (Colour.Effect | Colour.PhysicalEffectObject) } do
-		local newEffect = effect:Clone()
-
-		Colour.sprayPaintEffect(newEffect, playerKiColour)
-
-		newEffect.Parent = playerCharacter.HumanoidRootPart
-
-		cacheEffectObject(playerCharacter.Instance :: Types.EntityCharacter, newEffect)
+	local hrp = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if hrp then
+		hrp.Anchored = true
 	end
 
-	if directlyAboveFloor(playerCharacter) then
-		local floorEffect = FLOOR_EFFECTS:Clone()
-		floorEffect.CFrame = playerCharacter.HumanoidRootPart.CFrame
+	local gen = (generation[character] or 0) + 1
+	generation[character] = gen
 
-		for _, effect in floorEffect:GetChildren() :: { Colour.Effect | Colour.PhysicalEffectObject } do
-			Colour.sprayPaintEffect(effect, playerKiColour)
+	-- Re-check interrupted() in the handler so the flags clearing (stun/knockback ending) is ignored.
+	disconnectWatchers(character)
+	local function onInterrupt(): ()
+		if interrupted(character) then
+			Charge.stop(character)
 		end
-
-		floorEffect.Parent = playerCharacter.HumanoidRootPart
-		local weld = weldTo(playerCharacter.Instance :: Types.EntityCharacter, floorEffect)
-
-		cacheEffectObject(playerCharacter.Instance :: Types.EntityCharacter, floorEffect)
-		cacheEffectObject(playerCharacter.Instance :: Types.EntityCharacter, weld)
 	end
-end
+	watchers[character] = {
+		character:GetAttributeChangedSignal("Stunned"):Connect(onInterrupt),
+		character:GetAttributeChangedSignal("HitByKnockBack"):Connect(onInterrupt),
+	}
 
-local function removeAura(character: Model): ()
-	local cachedObjectsFound = effectObjectCache[character] or {}
-
-	for _, object in cachedObjectsFound :: { Instance } do
-		object:Destroy()
-	end
-
-	clearCacheEntry(character)
-end
-
-local function generateSparkingModeAura(playerCharacter: Character.Type, playerKiColour: Color3): ()
-	for _, effect in SPARKING_MODE_EFFECTS:GetChildren() :: { Instance & (ParticleEmitter | Attachment) } do
-		local newEffect = effect:Clone()
-
-		Colour.sprayPaintEffect(newEffect, playerKiColour)
-
-		newEffect.Parent = playerCharacter.HumanoidRootPart
-
-		cacheEffectObject(playerCharacter.Instance :: Types.EntityCharacter, newEffect)
-	end
-
-	if directlyAboveFloor(playerCharacter) then
-		local floorEffect = SPARKING_MODE_FLOOR_EFFECTS:Clone()
-		floorEffect.CFrame = playerCharacter.HumanoidRootPart.CFrame
-
-		for _, effect in floorEffect:GetChildren() :: { Colour.Effect | Colour.PhysicalEffectObject } do
-			Colour.sprayPaintEffect(effect, playerKiColour)
-		end
-
-		floorEffect.Parent = playerCharacter.HumanoidRootPart
-		local weld = weldTo(playerCharacter.Instance :: Types.EntityCharacter, floorEffect)
-
-		cacheEffectObject(playerCharacter.Instance :: Types.EntityCharacter, floorEffect)
-		cacheEffectObject(playerCharacter.Instance :: Types.EntityCharacter, weld)
-	end
-end
-
-function Charge.start(playerCharacter: Character.Type): ()
-	if
-		playerCharacter.Instance:GetAttribute("Charging")
-		or playerCharacter.Instance:GetAttribute("InSparkingMode")
-		or playerCharacter.Instance:GetAttribute("ToggleRagdoll")
-		or playerCharacter.Instance:GetAttribute("Resting")
-		or playerCharacter.Instance:GetAttribute("Attacking")
-		or playerCharacter.Instance:GetAttribute("AttackCooldown")
-		or playerCharacter.Instance:GetAttribute("HeavyCooldown")
-		or playerCharacter.Instance:GetAttribute("InCustomization")
-	then
-		return
-	end
-
-	local playerAnimations = playerCharacter.getAnimations()
-	local playerProfile = Manager.getProfile(playerCharacter.Player)
-	local playerKiColour =
-		SharedUtilities.colourTableToColour3(playerProfile.Data.Appearance.KiColor :: SharedTypes.ColourTable)
-	local wasInSparkingMode = false
-	playerCharacter.HumanoidRootPart.Anchored = true
-	local chargingSparkingMode = false
-
-	generateAura(playerCharacter, playerKiColour)
-	playerAnimations.Charge:Play()
-	playerCharacter.Instance:SetAttribute("KiColor", playerKiColour)
-	playerCharacter.Instance:SetAttribute("Charging", true)
-	playerCharacter.Instance:SetAttribute("CanBlock", false)
-
-	while playerCharacter.Instance:GetAttribute("Charging") do
-		if playerCharacter.Instance:GetAttribute("InSparkingMode") then
-			playerCharacter.Instance:SetAttribute("Charging", false)
-
-			break
-		end
-
-		local currentKi = playerCharacter.Instance:GetAttribute("Ki") :: number
-		local currentMaxKi = playerCharacter.Instance:GetAttribute("MaxKi") :: number
-
-		if currentKi < currentMaxKi then
-			local newKi = math.clamp(currentKi + (currentMaxKi / 15), 0, currentMaxKi)
-
-			playerCharacter.Instance:SetAttribute("Ki", newKi)
-			task.wait(1 / 15)
-		elseif playerProfile.Data.SkillTreeData.UnlockedTechniques["SparkingMode"] then
-			if not chargingSparkingMode then
-				removeAura(playerCharacter.Instance :: Model)
-				generateSparkingModeAura(playerCharacter, playerKiColour)
-
-				chargingSparkingMode = true
+	-- Generation guard retires this loop if a newer charge starts.
+	task.spawn(function(): ()
+		while character.Parent and character:GetAttribute("Charging") and generation[character] == gen do
+			local ki = (character:GetAttribute("Ki") :: number?) or 0
+			local maxKi = (character:GetAttribute("MaxKi") :: number?) or 0
+			if ki < maxKi then
+				character:SetAttribute("Ki", math.min(maxKi, ki + KI_REGEN_PER_SECOND * TICK))
 			end
-
-			local currentSparkingCharge = playerCharacter.Instance:GetAttribute("SparkingCharge") :: number? or 0
-			local maxSparkingCharge = playerCharacter.Instance:GetAttribute("MaxSparkingCharge") :: number? or 100
-
-			if currentSparkingCharge < maxSparkingCharge then
-				local newCharge = math.min(currentSparkingCharge + (maxSparkingCharge * 0.04), maxSparkingCharge)
-
-				playerCharacter.Instance:SetAttribute("SparkingCharge", newCharge)
-
-				if newCharge >= maxSparkingCharge then
-					local hasUnlocked = SparkingMode.hasUnlockedSparkingMode(playerCharacter.Player)
-					local meetsBP, currentBP = SparkingMode.meetsBPRequirement(playerCharacter.Player, playerCharacter.Instance)
-
-					if not hasUnlocked then
-						playerCharacter.Instance:SetAttribute("Charging", false)
-						break
-					end
-
-					if not meetsBP then
-						playerCharacter.Instance:SetAttribute("Charging", false)
-						break
-					end
-
-					wasInSparkingMode = true
-					playerCharacter.HumanoidRootPart.Anchored = false
-
-					removeAura(playerCharacter.Instance :: Model)
-					playerAnimations.Charge:Stop()
-					playerCharacter.Instance:SetAttribute("InSparkingMode", true)
-					playerCharacter.Instance:SetAttribute("Charging", false)
-
-					break
-				end
-			end
+			task.wait(TICK)
 		end
-
-		task.wait(0.2)
-	end
-
-	if wasInSparkingMode then
-		playerAnimations.Charge:Stop()
-	end
-
-	if not wasInSparkingMode and not playerCharacter.Instance:GetAttribute("InSparkingMode") then
-		local currentSparkingCharge = playerCharacter.Instance:GetAttribute("SparkingCharge") :: number? or 0
-		local maxSparkingCharge = playerCharacter.Instance:GetAttribute("MaxSparkingCharge") :: number? or 100
-
-		while currentSparkingCharge > 0 and playerCharacter.Instance.Parent do
-			if playerCharacter.Instance:GetAttribute("Charging") then
-				break
-			end
-
-			if playerCharacter.Instance:GetAttribute("InSparkingMode") then
-				break
-			end
-
-			currentSparkingCharge = math.max(currentSparkingCharge - (maxSparkingCharge * SPARKING_MODE_DRAIN_RATE), 0)
-
-			playerCharacter.Instance:SetAttribute("SparkingCharge", currentSparkingCharge)
-
-			task.wait(0.2)
-		end
-	end
+	end)
 end
 
--- Accepts a raw character Model — called from attack handlers that don't hold
--- a Character wrapper (e.g. LightAttack, HeavyAttack).
 function Charge.stop(character: Model): ()
 	if not character:GetAttribute("Charging") then
 		return
 	end
+
+	generation[character] = (generation[character] or 0) + 1
+	disconnectWatchers(character)
 
 	local hrp = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if hrp then
 		hrp.Anchored = false
 	end
 
-	removeAura(character)
 	character:SetAttribute("Charging", false)
 	character:SetAttribute("CanBlock", true)
-
-	-- Stop the Charge animation track directly via the Animator
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		local animator = humanoid:FindFirstChildOfClass("Animator")
-		if animator then
-			for _, track in animator:GetPlayingAnimationTracks() do
-				if track.Name == "Charge" then
-					track:Stop()
-					break
-				end
-			end
-		end
-	end
-
-	task.wait(0.2)
 end
 
 return Charge

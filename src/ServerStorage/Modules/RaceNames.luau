@@ -1,13 +1,4 @@
 --!strict
--- ─────────────────────────────────────────────
--- RaceNames.luau
--- Canonical name pools for every playable race.
--- Kept separate so RollRace.luau stays uncluttered.
---
--- Usage:
---   local RaceNames = require(ServerStorage.Modules.RaceNames)
---   local names = RaceNames.get("Saiyan")   -- { string }
--- ─────────────────────────────────────────────
 
 export type Race =
 	"Human"
@@ -21,7 +12,7 @@ export type Race =
 	| "GOD"
 	| "KAI"
 
-local Names: { [Race]: { string } } = {
+local Names: { [string]: { string } } = {
 	ANGEL = {
 		"Cointre",
 		"Amare",
@@ -244,12 +235,11 @@ local Names: { [Race]: { string } } = {
 	},
 }
 
--- Returns the name pool for the given race, or an empty table if unknown.
 local function get(race: string): { string }
-	return (Names :: { [string]: { string } })[race] or {}
+	return Names[race] or {}
 end
 
 return {
 	Names = Names,
-	get   = get,
+	get = get,
 }
