@@ -193,6 +193,66 @@ local items: { [string]: ItemDef } = {
 		},
 	},
 
+	BabidiLamp = {
+		displayName = "Babidi's Lamp",
+		type = "Key",
+		rarity = "Epic",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = false,
+		description = {
+			summary = "A strange magical lamp connected to Babidi's dark magic. It is a collectible item for now.",
+			effects = {
+				"Non-interactable",
+			},
+		},
+	},
+
+	HerculeStatueCopper = {
+		displayName = "Copper Hercule Statue",
+		type = "Material",
+		rarity = "Common",
+		maxAmount = 99,
+		image = "rbxassetid://0",
+		interactable = false,
+		description = {
+			summary = "A copper statue honoring the world champion Hercule. Mostly useful as a collectible or reward item.",
+			effects = {
+				"Non-interactable",
+			},
+		},
+	},
+
+	HerculeStatueSilver = {
+		displayName = "Silver Hercule Statue",
+		type = "Material",
+		rarity = "Rare",
+		maxAmount = 99,
+		image = "rbxassetid://0",
+		interactable = false,
+		description = {
+			summary = "A silver statue honoring the world champion Hercule. Mostly useful as a collectible or reward item.",
+			effects = {
+				"Non-interactable",
+			},
+		},
+	},
+
+	HerculeStatueGold = {
+		displayName = "Gold Hercule Statue",
+		type = "Material",
+		rarity = "Legendary",
+		maxAmount = 99,
+		image = "rbxassetid://0",
+		interactable = false,
+		description = {
+			summary = "A gold statue honoring the world champion Hercule. Mostly useful as a collectible or reward item.",
+			effects = {
+				"Non-interactable",
+			},
+		},
+	},
+
 	EarthDragonBall1 = {
 		displayName = "1-Star Dragon Ball",
 		type = "Key",
