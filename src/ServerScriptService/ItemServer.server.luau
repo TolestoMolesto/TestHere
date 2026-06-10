@@ -47,6 +47,7 @@ local function seedTestItems(player: Player)
 	Inventory.add(player, "SensuBean33OT", 10)
 	Inventory.add(player, "SensuBean66OT", 10)
 	Inventory.add(player, "SensuBean100OT", 5)
+	Inventory.add(player, "Weights025Ton4Piece", 1)
 	Inventory.add(player, "DragonRadar", 1)
 	pushInventory(player)
 end
