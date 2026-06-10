@@ -44,8 +44,8 @@ end
 
 local function rollSeedDrop(player: Player, def: ItemConfig.ItemDef): ()
 	local params: { [string]: any } = def.params or {}
-	local seedDropItemId = params.seedDropItemId :: string?
-	local seedDropChance = params.seedDropChance :: number?
+	local seedDropItemId = (params.seedDropItemId :: string?)
+	local seedDropChance = (params.seedDropChance :: number?)
 	if not seedDropItemId or not seedDropChance or seedDropChance <= 0 then
 		return
 	end
