@@ -186,6 +186,7 @@ local items: { [string]: ItemDef } = {
 		description = {
 			summary = "A four-piece set of 0.25 ton training weights. Use them to toggle weight training on or off.",
 			effects = {
+				"Wears weights on each arm and leg",
 				"Toggles WeightTraining",
 				"Weight: 0.25",
 				"Reusable",
