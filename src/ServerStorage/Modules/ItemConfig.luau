@@ -380,6 +380,50 @@ local items: { [string]: ItemDef } = {
 			},
 		},
 	},
+
+	StarterScouter = {
+		displayName = "Starter Scouter",
+		type = "Boost",
+		rarity = "Common",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = true,
+		consumeOnUse = false, -- wearable gear: toggled on/off, never spent
+		behavior = "ToggleScouter",
+		params = { scouter = "StarterScouter" }, -- Accessory name under ServerStorage.Assets.Items
+		description = {
+			summary = "A standard-issue scouter worn over one eye. Equip it, then hold the Scouter key to "
+				.. "scan nearby fighters and read their battle power.",
+			effects = {
+				"Equips / unequips the Starter Scouter",
+				"Hold the Scouter key to scan nearby power levels",
+				"Reusable",
+			},
+		},
+	},
+
+	AdminScouter = {
+		displayName = "Admin Scouter",
+		type = "Boost",
+		rarity = "Mythic",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = true,
+		consumeOnUse = false, -- wearable gear: toggled on/off, never spent
+		behavior = "ToggleScouter",
+		params = { scouter = "AdminScouter" }, -- Accessory name under ServerStorage.Assets.Items
+		description = {
+			note = "Staff-only gear.",
+			summary = "A modified scouter with no range or power-reading limit -- it sees every fighter on "
+				.. "the map and never errors out.",
+			effects = {
+				"Equips / unequips the Admin Scouter",
+				"Unlimited scan range",
+				"Reads any battle power (never errors)",
+				"Reusable",
+			},
+		},
+	},
 }
 
 local ItemConfig = {}
