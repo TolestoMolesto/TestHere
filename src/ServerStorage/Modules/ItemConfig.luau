@@ -42,7 +42,13 @@ local items: { [string]: ItemDef } = {
 		image = "rbxassetid://0",
 		interactable = true,
 		behavior = "InstantRestore",
-		params = { health = 0.33, ki = 0.33, stamina = 0.33, seedDropItemId = SENSU_SEED_DROP.seedDropItemId, seedDropChance = SENSU_SEED_DROP.seedDropChance },
+		params = {
+			health = 0.33,
+			ki = 0.33,
+			stamina = 0.33,
+			seedDropItemId = SENSU_SEED_DROP.seedDropItemId,
+			seedDropChance = SENSU_SEED_DROP.seedDropChance,
+		},
 		description = {
 			summary = "A mystical bean grown at Korin's Tower. This weaker bean instantly restores part of your body and energy.",
 			effects = {
@@ -62,7 +68,13 @@ local items: { [string]: ItemDef } = {
 		image = "rbxassetid://0",
 		interactable = true,
 		behavior = "InstantRestore",
-		params = { health = 0.66, ki = 0.66, stamina = 0.66, seedDropItemId = SENSU_SEED_DROP.seedDropItemId, seedDropChance = SENSU_SEED_DROP.seedDropChance },
+		params = {
+			health = 0.66,
+			ki = 0.66,
+			stamina = 0.66,
+			seedDropItemId = SENSU_SEED_DROP.seedDropItemId,
+			seedDropChance = SENSU_SEED_DROP.seedDropChance,
+		},
 		description = {
 			summary = "A mystical bean grown at Korin's Tower. Eating one instantly restores a large portion of your body and energy.",
 			effects = {
@@ -83,7 +95,13 @@ local items: { [string]: ItemDef } = {
 		image = "rbxassetid://0",
 		interactable = true,
 		behavior = "InstantRestore",
-		params = { health = 1, ki = 1, stamina = 1, seedDropItemId = SENSU_SEED_DROP.seedDropItemId, seedDropChance = SENSU_SEED_DROP.seedDropChance },
+		params = {
+			health = 1,
+			ki = 1,
+			stamina = 1,
+			seedDropItemId = SENSU_SEED_DROP.seedDropItemId,
+			seedDropChance = SENSU_SEED_DROP.seedDropChance,
+		},
 		description = {
 			summary = "A mystical bean grown at Korin's Tower. Eating one instantly restores your body to peak condition.",
 			effects = {
@@ -103,7 +121,12 @@ local items: { [string]: ItemDef } = {
 		image = "rbxassetid://0",
 		interactable = true,
 		behavior = "RestoreOverTime",
-		params = { fraction = 0.33, duration = 30, seedDropItemId = SENSU_SEED_DROP.seedDropItemId, seedDropChance = SENSU_SEED_DROP.seedDropChance },
+		params = {
+			fraction = 0.33,
+			duration = 30,
+			seedDropItemId = SENSU_SEED_DROP.seedDropItemId,
+			seedDropChance = SENSU_SEED_DROP.seedDropChance,
+		},
 		description = {
 			note = "Heals gradually -- stay alive to reap the full benefit.",
 			summary = "A slow-release Sensu Bean. Its energy seeps in over time, steadily restoring your body, stamina, and ki.",
@@ -124,7 +147,12 @@ local items: { [string]: ItemDef } = {
 		image = "rbxassetid://0",
 		interactable = true,
 		behavior = "RestoreOverTime",
-		params = { fraction = 0.66, duration = 30, seedDropItemId = SENSU_SEED_DROP.seedDropItemId, seedDropChance = SENSU_SEED_DROP.seedDropChance },
+		params = {
+			fraction = 0.66,
+			duration = 30,
+			seedDropItemId = SENSU_SEED_DROP.seedDropItemId,
+			seedDropChance = SENSU_SEED_DROP.seedDropChance,
+		},
 		description = {
 			note = "Heals gradually -- stay alive to reap the full benefit.",
 			summary = "A slow-release Sensu Bean. Its energy seeps in over time, steadily restoring your body, stamina, and ki.",
@@ -145,7 +173,12 @@ local items: { [string]: ItemDef } = {
 		image = "rbxassetid://0",
 		interactable = true,
 		behavior = "RestoreOverTime",
-		params = { fraction = 1, duration = 30, seedDropItemId = SENSU_SEED_DROP.seedDropItemId, seedDropChance = SENSU_SEED_DROP.seedDropChance },
+		params = {
+			fraction = 1,
+			duration = 30,
+			seedDropItemId = SENSU_SEED_DROP.seedDropItemId,
+			seedDropChance = SENSU_SEED_DROP.seedDropChance,
+		},
 		description = {
 			note = "Heals gradually -- stay alive to reap the full benefit.",
 			summary = "A slow-release Sensu Bean. Its energy seeps in over time, steadily restoring your body, stamina, and ki.",
