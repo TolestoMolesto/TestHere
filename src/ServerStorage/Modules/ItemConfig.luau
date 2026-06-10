@@ -173,6 +173,118 @@ local items: { [string]: ItemDef } = {
 		},
 	},
 
+	EarthDragonBall1 = {
+		displayName = "Earth Dragon Ball",
+		type = "Key",
+		rarity = "Legendary",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = false,
+		description = {
+			summary = "The One-Star Earth Dragon Ball. Gather all seven to call forth Earth's eternal dragon.",
+			effects = {
+				"Earth Variant",
+				"One-Star Dragon Ball",
+			},
+		},
+	},
+
+	EarthDragonBall2 = {
+		displayName = "Earth Dragon Ball",
+		type = "Key",
+		rarity = "Legendary",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = false,
+		description = {
+			summary = "The Two-Star Earth Dragon Ball. Gather all seven to call forth Earth's eternal dragon.",
+			effects = {
+				"Earth Variant",
+				"Two-Star Dragon Ball",
+			},
+		},
+	},
+
+	EarthDragonBall3 = {
+		displayName = "Earth Dragon Ball",
+		type = "Key",
+		rarity = "Legendary",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = false,
+		description = {
+			summary = "The Three-Star Earth Dragon Ball. Gather all seven to call forth Earth's eternal dragon.",
+			effects = {
+				"Earth Variant",
+				"Three-Star Dragon Ball",
+			},
+		},
+	},
+
+	EarthDragonBall4 = {
+		displayName = "Earth Dragon Ball",
+		type = "Key",
+		rarity = "Legendary",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = false,
+		description = {
+			summary = "The Four-Star Earth Dragon Ball. Gather all seven to call forth Earth's eternal dragon.",
+			effects = {
+				"Earth Variant",
+				"Four-Star Dragon Ball",
+			},
+		},
+	},
+
+	EarthDragonBall5 = {
+		displayName = "Earth Dragon Ball",
+		type = "Key",
+		rarity = "Legendary",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = false,
+		description = {
+			summary = "The Five-Star Earth Dragon Ball. Gather all seven to call forth Earth's eternal dragon.",
+			effects = {
+				"Earth Variant",
+				"Five-Star Dragon Ball",
+			},
+		},
+	},
+
+	EarthDragonBall6 = {
+		displayName = "Earth Dragon Ball",
+		type = "Key",
+		rarity = "Legendary",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = false,
+		description = {
+			summary = "The Six-Star Earth Dragon Ball. Gather all seven to call forth Earth's eternal dragon.",
+			effects = {
+				"Earth Variant",
+				"Six-Star Dragon Ball",
+			},
+		},
+	},
+
+	EarthDragonBall7 = {
+		displayName = "Earth Dragon Ball",
+		type = "Key",
+		rarity = "Legendary",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = false,
+		description = {
+			summary = "The Seven-Star Earth Dragon Ball. Gather all seven to call forth Earth's eternal dragon.",
+			effects = {
+				"Earth Variant",
+				"Seven-Star Dragon Ball",
+			},
+		},
+	},
+
 	DragonRadar = {
 		displayName = "Dragon Radar",
 		type = "Key",
