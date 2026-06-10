@@ -173,7 +173,7 @@ local items: { [string]: ItemDef } = {
 	},
 
 	EarthDragonBall1 = {
-		displayName = "Earth Dragon Ball",
+		displayName = "1-Star Dragon Ball",
 		type = "Key",
 		rarity = "Legendary",
 		maxAmount = 1,
@@ -189,7 +189,7 @@ local items: { [string]: ItemDef } = {
 	},
 
 	EarthDragonBall2 = {
-		displayName = "Earth Dragon Ball",
+		displayName = "2-Star Dragon Ball",
 		type = "Key",
 		rarity = "Legendary",
 		maxAmount = 1,
@@ -205,7 +205,7 @@ local items: { [string]: ItemDef } = {
 	},
 
 	EarthDragonBall3 = {
-		displayName = "Earth Dragon Ball",
+		displayName = "3-Star Dragon Ball",
 		type = "Key",
 		rarity = "Legendary",
 		maxAmount = 1,
@@ -221,7 +221,7 @@ local items: { [string]: ItemDef } = {
 	},
 
 	EarthDragonBall4 = {
-		displayName = "Earth Dragon Ball",
+		displayName = "4-Star Dragon Ball",
 		type = "Key",
 		rarity = "Legendary",
 		maxAmount = 1,
@@ -237,7 +237,7 @@ local items: { [string]: ItemDef } = {
 	},
 
 	EarthDragonBall5 = {
-		displayName = "Earth Dragon Ball",
+		displayName = "5-Star Dragon Ball",
 		type = "Key",
 		rarity = "Legendary",
 		maxAmount = 1,
@@ -253,7 +253,7 @@ local items: { [string]: ItemDef } = {
 	},
 
 	EarthDragonBall6 = {
-		displayName = "Earth Dragon Ball",
+		displayName = "6-Star Dragon Ball",
 		type = "Key",
 		rarity = "Legendary",
 		maxAmount = 1,
@@ -269,7 +269,7 @@ local items: { [string]: ItemDef } = {
 	},
 
 	EarthDragonBall7 = {
-		displayName = "Earth Dragon Ball",
+		displayName = "7-Star Dragon Ball",
 		type = "Key",
 		rarity = "Legendary",
 		maxAmount = 1,
