@@ -19,7 +19,8 @@ export type ItemDef = {
 	rarity: ItemRarity,
 	maxAmount: number, -- per-slot stack cap (old "MaxAmount")
 	image: string, -- "rbxassetid://…" (old "Image")
-	interactable: boolean, -- true = can be actively Used (consumed); false = passive/material
+	interactable: boolean, -- true = can be actively Used; false = passive/material
+	consumeOnUse: boolean?, -- false = reusable equipment/tool; nil defaults to true for old consumables
 	behavior: string?, -- module name under ServerStorage.Modules.Items (nil for passive items)
 	cooldown: number?, -- optional use-cooldown in seconds
 	params: { [string]: any }?, -- inputs the behavior reads, so one behavior serves many items
@@ -168,6 +169,26 @@ local items: { [string]: ItemDef } = {
 			summary = "A tiny seed from a Sensu Bean. It does nothing for now.",
 			effects = {
 				"No effect",
+			},
+		},
+	},
+
+	Weights025Ton4Piece = {
+		displayName = "0.25 Ton Weights (4 Piece)",
+		type = "Boost",
+		rarity = "Uncommon",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = true,
+		consumeOnUse = false,
+		behavior = "ToggleWeights",
+		params = { weight = 0.25 },
+		description = {
+			summary = "A four-piece set of 0.25 ton training weights. Use them to toggle weight training on or off.",
+			effects = {
+				"Toggles WeightTraining",
+				"Weight: 0.25",
+				"Reusable",
 			},
 		},
 	},
