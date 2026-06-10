@@ -1,8 +1,8 @@
 --!strict
 -- Runtime controller for USING an item, mirroring SkillState: resolve the item, run every gate,
--- consume one, start any cooldown, then run its behavior module. Consuming up front (before the
--- behavior, which may run for many seconds -- e.g. a heal-over-time) stops a single stack from being
--- spent twice mid-effect. Passive/material items (interactable = false) can never be used here.
+-- optionally consume one, start any cooldown, then run its behavior module. Consuming up front (before
+-- the behavior, which may run for many seconds -- e.g. a heal-over-time) stops a single stack from
+-- being spent twice mid-effect. Passive/material items (interactable = false) can never be used here.
 
 local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
@@ -54,7 +54,7 @@ local function rollSeedDrop(player: Player, def: ItemConfig.ItemDef): ()
 	end
 end
 
--- Try to use one of `itemId` from the player's active slot. Returns true if it was consumed + run.
+-- Try to use one of `itemId` from the player's active slot. Returns true if it was run.
 function ItemState.use(player: Player, itemId: string): boolean
 	local def = ItemConfig.get(itemId)
 	if not def then
@@ -96,11 +96,14 @@ function ItemState.use(player: Player, itemId: string): boolean
 		return false
 	end
 
-	-- Consume up front, then start the cooldown, then run the (possibly long-running) effect.
-	if not Inventory.remove(player, itemId, 1) then
-		return false
+	-- Consumables remove one stack up front. Reusable equipment/tools set consumeOnUse = false.
+	local consumeOnUse = if def.consumeOnUse == nil then true else def.consumeOnUse
+	if consumeOnUse then
+		if not Inventory.remove(player, itemId, 1) then
+			return false
+		end
+		rollSeedDrop(player, def)
 	end
-	rollSeedDrop(player, def)
 	if def.cooldown and def.cooldown > 0 then
 		character:SetAttribute(`Item_{itemId}_ReadyAt`, now + def.cooldown)
 	end
