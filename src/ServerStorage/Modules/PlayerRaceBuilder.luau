@@ -482,6 +482,33 @@ local function applyFace(character: Model, race: string, gender: string, slot: a
 	applyDecal("Nose", slot.Nose, "Nose")
 end
 
+-- Wearable scouters live as Accessories under Assets.Items, named "<Tier>Scouter" (StarterScouter,
+-- AdminScouter, ...). Only one is worn at a time; which one is driven by the Items system
+-- (Items/ToggleScouter) and persisted in slot.ScouterEquipped, so it survives respawns. Strips any worn
+-- scouter, then attaches the named one; "None"/unset just leaves it stripped (so this also handles switch
+-- + unequip when called live).
+local function applyScouter(character: Model, scouterName: string?)
+	for _, acc in character:GetChildren() do
+		if acc:IsA("Accessory") and acc.Name:match("Scouter$") then
+			acc:Destroy()
+		end
+	end
+	if not scouterName or scouterName == "None" or scouterName == UNSET or scouterName == "" then
+		return
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid") :: Humanoid?
+	if not humanoid then
+		return
+	end
+	local itemsFolder = Assets:FindFirstChild("Items")
+	local template = itemsFolder and itemsFolder:FindFirstChild(scouterName)
+	if template and template:IsA("Accessory") then
+		humanoid:AddAccessory(template:Clone())
+	else
+		warn("[PlayerRaceBuilder] Scouter accessory not found:", scouterName)
+	end
+end
+
 local function buildAppearance(character: Model, humanoid: Humanoid, slot: any)
 	local race = slot.Race :: string
 	local gender = slot.Gender :: string
@@ -515,6 +542,7 @@ local function buildAppearance(character: Model, humanoid: Humanoid, slot: any)
 	applyBodyDecal(character, race, gender, slot.BodyDecal)
 
 	applyClothing(humanoid, character, slot, gender)
+	applyScouter(character, slot.ScouterEquipped)
 
 	for _, limbName in { "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg" } do
 		local limb = character:FindFirstChild(limbName) :: BasePart?
@@ -559,6 +587,10 @@ local function ensureGeneratedData(slot: any)
 end
 
 local PlayerRaceBuilder = {}
+
+-- Exposed so the Items system (Items/ToggleScouter) can re-attach the worn scouter live, the same way a
+-- respawn does through buildFromSlot -> buildAppearance.
+PlayerRaceBuilder.applyScouter = applyScouter
 
 function PlayerRaceBuilder.buildFromSlot(character: Model, slot: any)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")

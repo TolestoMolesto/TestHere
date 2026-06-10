@@ -186,6 +186,7 @@ local items: { [string]: ItemDef } = {
 		description = {
 			summary = "A four-piece set of 0.25 ton training weights. Use them to toggle weight training on or off.",
 			effects = {
+				"Wears weights on each arm and leg",
 				"Toggles WeightTraining",
 				"Weight: 0.25",
 				"Reusable",
@@ -377,6 +378,50 @@ local items: { [string]: ItemDef } = {
 				.. "of every Dragon Ball on the planet. A treasured keepsake, not something you use up.",
 			effects = {
 				"Reveals nearby Dragon Balls",
+			},
+		},
+	},
+
+	StarterScouter = {
+		displayName = "Starter Scouter",
+		type = "Boost",
+		rarity = "Common",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = true,
+		consumeOnUse = false, -- wearable gear: toggled on/off, never spent
+		behavior = "ToggleScouter",
+		params = { scouter = "StarterScouter" }, -- Accessory name under ServerStorage.Assets.Items
+		description = {
+			summary = "A standard-issue scouter worn over one eye. Equip it, then hold the Scouter key to "
+				.. "scan nearby fighters and read their battle power.",
+			effects = {
+				"Equips / unequips the Starter Scouter",
+				"Hold the Scouter key to scan nearby power levels",
+				"Reusable",
+			},
+		},
+	},
+
+	AdminScouter = {
+		displayName = "Admin Scouter",
+		type = "Boost",
+		rarity = "Mythic",
+		maxAmount = 1,
+		image = "rbxassetid://0",
+		interactable = true,
+		consumeOnUse = false, -- wearable gear: toggled on/off, never spent
+		behavior = "ToggleScouter",
+		params = { scouter = "AdminScouter" }, -- Accessory name under ServerStorage.Assets.Items
+		description = {
+			note = "Staff-only gear.",
+			summary = "A modified scouter with no range or power-reading limit -- it sees every fighter on "
+				.. "the map and never errors out.",
+			effects = {
+				"Equips / unequips the Admin Scouter",
+				"Unlimited scan range",
+				"Reads any battle power (never errors)",
+				"Reusable",
 			},
 		},
 	},

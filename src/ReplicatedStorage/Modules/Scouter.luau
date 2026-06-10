@@ -44,9 +44,12 @@ export type ScouterTier = { Range: number, Max: number }
 Scouter.DEFAULT_RANGE = 300
 Scouter.DEFAULT_MAX = math.huge
 
--- TODO: replace with the real tiers + values. These are placeholders so the system runs.
+-- Keyed by Humanoid.Appearance.ScouterEquipped -- the worn Accessory's name (see Items/ToggleScouter).
+-- An equipped-but-unlisted name still works via getTier's default fallback (shows everything).
 local CONFIG: { [string]: ScouterTier } = {
 	Basic = { Range = 300, Max = 24000 },
+	StarterScouter = { Range = 300, Max = 24000 },
+	AdminScouter = { Range = math.huge, Max = math.huge }, -- staff lens: sees everyone, never "Error"
 }
 
 -- Folders that hold scannable rigs (the canonical entity folders + a place-side "Enemies").
