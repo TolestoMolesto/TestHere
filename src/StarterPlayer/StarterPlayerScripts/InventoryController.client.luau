@@ -1,10 +1,12 @@
 --!strict
--- Inventory (bag) UI: an on-screen "Items" button (and the rebindable Inventory key, default B) toggle
--- a panel showing the active slot's items as a grid, with a detail pane that renders the item's
--- description (the standard Type/Rarity/summary/Effects block) and a Use button. Pulls the sanitised
--- list from the server (Remotes.GetInventory) on open and live-updates from Remotes.InventoryChanged
--- after any use/grant. Item balance/config never reaches the client -- we only ever see counts +
--- display + the finished description string. Style/builders mirror SkillLoadoutController.
+-- Unified Inventory hub. One panel, opened/closed with the Inventory key (default backtick `) or the
+-- on-screen button, with two tabs:
+--   * Items  -- consumables: a grid + a detail pane with Use (GetInventory / UseItem).
+--   * Skills -- ONE combined, colour-coded, sortable list of every ability: Passives + Skills (Moves,
+--               keys 1-5) + Forms/Tech (keys 6-0). Selecting a Move or Form shows a key selector in
+--               the detail pane to (re)assign its hotkey slot; Passives are read-only info.
+-- Balance/config never reaches the client -- the server sends only sanitised lists + the finished
+-- description string. Style/builders mirror SettingsController & the other panels.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -22,8 +24,9 @@ local SLOT_BG = Color3.fromRGB(16, 17, 22)
 local ACCENT = Color3.fromRGB(255, 176, 32)
 local TEXT_COLOR = Color3.fromRGB(238, 240, 245)
 local TEXT_DIM = Color3.fromRGB(150, 153, 165)
+local TAB_INACTIVE = Color3.fromRGB(30, 31, 38)
 
--- Rarity border tints (cosmetic only; rarity also reads in the description text).
+-- Item rarity border tints.
 local RARITY_COLOR: { [string]: Color3 } = {
 	Common = Color3.fromRGB(170, 175, 185),
 	Uncommon = Color3.fromRGB(90, 200, 110),
@@ -33,7 +36,15 @@ local RARITY_COLOR: { [string]: Color3 } = {
 	Mythic = Color3.fromRGB(255, 80, 90),
 }
 
-type Entry = {
+-- Ability kind tints for the combined Skills list (the three groups the user asked to read apart).
+local KIND_COLOR: { [string]: Color3 } = {
+	Skill = Color3.fromRGB(240, 140, 60), -- Moves (keys 1-5)
+	Form = Color3.fromRGB(170, 110, 240), -- Forms / Techniques (keys 6-0)
+	Passive = Color3.fromRGB(90, 190, 180), -- read-only innate traits
+}
+local KIND_ORDER: { [string]: number } = { Skill = 1, Form = 2, Passive = 3 }
+
+type ItemEntry = {
 	id: string,
 	displayName: string,
 	type: string,
@@ -45,16 +56,21 @@ type Entry = {
 	description: string,
 }
 
--- Live state, refreshed from the server.
-local items: { Entry } = {}
-local selectedId: string? = nil
+type AbilityEntry = {
+	id: string,
+	displayName: string,
+	kind: string, -- "Skill" | "Form" | "Passive" (colour + sort group)
+	typeLabel: string, -- "Skill" | "Form" | "Technique" | "Passive"
+	description: string,
+	unlocked: boolean,
+	equippable: boolean,
+	slotKind: string?, -- "Skill" | "Form" (which loadout); nil for passives
+	slotIndex: number?, -- current loadout slot 1-5, or nil if unequipped
+}
 
--- Forward declarations: cell clicks call refreshDetail, openPanel calls rebuildGrid (both assigned
--- once the widgets they touch exist).
-local refreshDetail: () -> ()
-local rebuildGrid: () -> ()
+local LOADOUT_SIZE = 5
 
--- Inline builders (mirror SkillLoadoutController) ------------------------------------------------
+-- Inline builders (mirror SettingsController / the other panels) --------------------------------
 
 local function corner(object: Instance, scale: number): ()
 	local c = Instance.new("UICorner")
@@ -130,6 +146,34 @@ local function makeButton(
 	return button
 end
 
+-- Hotkey display: digits read "1".."0", mouse buttons "M1".."M3", backtick "`", else the raw name.
+local DIGIT_NAMES: { [string]: string } = {
+	One = "1",
+	Two = "2",
+	Three = "3",
+	Four = "4",
+	Five = "5",
+	Six = "6",
+	Seven = "7",
+	Eight = "8",
+	Nine = "9",
+	Zero = "0",
+}
+local MOUSE_NAMES: { [string]: string } = { MouseButton1 = "M1", MouseButton2 = "M2", MouseButton3 = "M3" }
+local function keyName(bind: Keybinds.Bind?): string
+	if bind == nil then
+		return "—"
+	end
+	local n = (bind :: any).Name
+	return DIGIT_NAMES[n] or MOUSE_NAMES[n] or (if n == "Backquote" then "`" else n)
+end
+
+-- The live key bound to loadout slot `index` for an ability of `slotKind` ("Skill"/"Form").
+local function slotKeyName(slotKind: string?, index: number): string
+	local action = (if slotKind == "Skill" then "SkillSlot" else "FormSlot") .. index
+	return keyName(Keybinds.get(action))
+end
+
 -- Shell ------------------------------------------------------------------------------------------
 
 local screenGui = Instance.new("ScreenGui")
@@ -141,17 +185,17 @@ screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = playerGui
 
 local openButton = Instance.new("TextButton")
-openButton.Name = "OpenItems"
+openButton.Name = "OpenInventory"
 openButton.AnchorPoint = Vector2.new(0.5, 0.5)
-openButton.Position = UDim2.fromScale(0.93, 0.19) -- below the Skills button (0.13)
+openButton.Position = UDim2.fromScale(0.93, 0.13) -- below the Settings button (0.07)
 openButton.Size = UDim2.fromScale(0.1, 0.05)
 openButton.BackgroundColor3 = PANEL_BG
 openButton.AutoButtonColor = true
 openButton.Font = Enum.Font.GothamBold
-openButton.Text = "Items"
+openButton.Text = "Inventory"
 openButton.TextColor3 = TEXT_COLOR
 openButton.TextScaled = true
-constrainText(openButton, 8, 20)
+constrainText(openButton, 8, 18)
 corner(openButton, 0.3)
 stroke(openButton, 0.02, ACCENT, 0.2)
 openButton.Parent = screenGui
@@ -160,32 +204,64 @@ local panel = Instance.new("Frame")
 panel.Name = "Panel"
 panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.Position = UDim2.fromScale(0.5, 0.5)
-panel.Size = UDim2.fromScale(0.55, 0.62)
+panel.Size = UDim2.fromScale(0.6, 0.66)
 panel.BackgroundColor3 = PANEL_BG
 panel.BackgroundTransparency = 0.05
 panel.Visible = false
 corner(panel, 0.04)
 panel.Parent = screenGui
 
-local title = makeLabel(panel, "Items", 0.5, 0.06, 0.6, 0.07, Enum.TextXAlignment.Center, 26)
+local title = makeLabel(panel, "Inventory", 0.5, 0.05, 0.6, 0.07, Enum.TextXAlignment.Center, 26)
 title.Font = Enum.Font.GothamBold
 
-local closeButton = makeButton(panel, "X", 0.94, 0.06, 0.07, 0.06, 20)
+local closeButton = makeButton(panel, "X", 0.95, 0.05, 0.06, 0.05, 20)
 
--- Item grid (left) -------------------------------------------------------------------------------
+local tabBar = Instance.new("Frame")
+tabBar.AnchorPoint = Vector2.new(0.5, 0.5)
+tabBar.Position = UDim2.fromScale(0.5, 0.12)
+tabBar.Size = UDim2.fromScale(0.44, 0.06)
+tabBar.BackgroundTransparency = 1
+tabBar.Parent = panel
+
+local itemsTabButton = makeButton(tabBar, "Items", 0.255, 0.5, 0.49, 1, 18)
+local skillsTabButton = makeButton(tabBar, "Skills", 0.745, 0.5, 0.49, 1, 18)
+
+local itemsContent = Instance.new("Frame")
+itemsContent.Name = "ItemsTab"
+itemsContent.AnchorPoint = Vector2.new(0.5, 0.5)
+itemsContent.Position = UDim2.fromScale(0.5, 0.57)
+itemsContent.Size = UDim2.fromScale(0.96, 0.82)
+itemsContent.BackgroundTransparency = 1
+itemsContent.Parent = panel
+
+local skillsContent = Instance.new("Frame")
+skillsContent.Name = "SkillsTab"
+skillsContent.AnchorPoint = Vector2.new(0.5, 0.5)
+skillsContent.Position = UDim2.fromScale(0.5, 0.57)
+skillsContent.Size = UDim2.fromScale(0.96, 0.82)
+skillsContent.BackgroundTransparency = 1
+skillsContent.Visible = false
+skillsContent.Parent = panel
+
+-- ================================================================================================
+-- ITEMS TAB
+-- ================================================================================================
+
+local items: { ItemEntry } = {}
+local selectedItemId: string? = nil
 
 local gridScroller = Instance.new("ScrollingFrame")
 gridScroller.Name = "Grid"
 gridScroller.AnchorPoint = Vector2.new(0.5, 0.5)
-gridScroller.Position = UDim2.fromScale(0.31, 0.56)
-gridScroller.Size = UDim2.fromScale(0.58, 0.82)
+gridScroller.Position = UDim2.fromScale(0.31, 0.5)
+gridScroller.Size = UDim2.fromScale(0.6, 0.98)
 gridScroller.BackgroundTransparency = 1
 gridScroller.BorderSizePixel = 0
 gridScroller.ScrollBarThickness = 6
 gridScroller.ScrollBarImageColor3 = ACCENT
 gridScroller.AutomaticCanvasSize = Enum.AutomaticSize.XY
 gridScroller.CanvasSize = UDim2.new(0, 0, 0, 0)
-gridScroller.Parent = panel
+gridScroller.Parent = itemsContent
 
 local grid = Instance.new("UIGridLayout")
 grid.CellSize = UDim2.fromScale(0.31, 0.31)
@@ -196,46 +272,42 @@ grid.VerticalAlignment = Enum.VerticalAlignment.Top
 grid.SortOrder = Enum.SortOrder.LayoutOrder
 grid.Parent = gridScroller
 
--- Parented to the panel (not the scroller) so the grid layout never repositions it.
-local emptyNotice = makeLabel(panel, "Your bag is empty.", 0.31, 0.56, 0.5, 0.06, Enum.TextXAlignment.Center, 16)
-emptyNotice.TextColor3 = TEXT_DIM
-emptyNotice.Visible = false
+local itemsEmpty = makeLabel(itemsContent, "Your bag is empty.", 0.31, 0.5, 0.5, 0.06, Enum.TextXAlignment.Center, 16)
+itemsEmpty.TextColor3 = TEXT_DIM
+itemsEmpty.Visible = false
 
--- Detail pane (right) ----------------------------------------------------------------------------
+local itemDetail = Instance.new("Frame")
+itemDetail.AnchorPoint = Vector2.new(0.5, 0.5)
+itemDetail.Position = UDim2.fromScale(0.8, 0.5)
+itemDetail.Size = UDim2.fromScale(0.38, 0.98)
+itemDetail.BackgroundColor3 = SLOT_BG
+itemDetail.BackgroundTransparency = 0.2
+corner(itemDetail, 0.05)
+itemDetail.Parent = itemsContent
 
-local detail = Instance.new("Frame")
-detail.Name = "Detail"
-detail.AnchorPoint = Vector2.new(0.5, 0.5)
-detail.Position = UDim2.fromScale(0.79, 0.56)
-detail.Size = UDim2.fromScale(0.38, 0.82)
-detail.BackgroundColor3 = SLOT_BG
-detail.BackgroundTransparency = 0.2
-corner(detail, 0.05)
-detail.Parent = panel
+local itemImage = Instance.new("ImageLabel")
+itemImage.AnchorPoint = Vector2.new(0.5, 0.5)
+itemImage.Position = UDim2.fromScale(0.5, 0.16)
+itemImage.Size = UDim2.fromScale(0.46, 0.22)
+itemImage.BackgroundTransparency = 1
+itemImage.ScaleType = Enum.ScaleType.Fit
+itemImage.Parent = itemDetail
 
-local detailImage = Instance.new("ImageLabel")
-detailImage.AnchorPoint = Vector2.new(0.5, 0.5)
-detailImage.Position = UDim2.fromScale(0.5, 0.16)
-detailImage.Size = UDim2.fromScale(0.46, 0.22)
-detailImage.BackgroundTransparency = 1
-detailImage.ScaleType = Enum.ScaleType.Fit
-detailImage.Parent = detail
+local itemName = makeLabel(itemDetail, "", 0.5, 0.33, 0.92, 0.07, Enum.TextXAlignment.Center, 18)
+itemName.Font = Enum.Font.GothamBold
 
-local detailName = makeLabel(detail, "", 0.5, 0.33, 0.92, 0.07, Enum.TextXAlignment.Center, 18)
-detailName.Font = Enum.Font.GothamBold
+local itemDesc = makeLabel(itemDetail, "", 0.5, 0.63, 0.9, 0.46, Enum.TextXAlignment.Left, 14)
+itemDesc.TextWrapped = true
+itemDesc.TextYAlignment = Enum.TextYAlignment.Top
+itemDesc.TextColor3 = TEXT_DIM
 
-local detailDesc = makeLabel(detail, "", 0.5, 0.63, 0.9, 0.46, Enum.TextXAlignment.Left, 14)
-detailDesc.TextWrapped = true
-detailDesc.TextYAlignment = Enum.TextYAlignment.Top
-detailDesc.TextColor3 = TEXT_DIM
+local useButton = makeButton(itemDetail, "Use", 0.5, 0.93, 0.74, 0.1, 18)
 
-local useButton = makeButton(detail, "Use", 0.5, 0.93, 0.74, 0.1, 18)
+local itemPlaceholder =
+	makeLabel(itemDetail, "Select an item to inspect it.", 0.5, 0.5, 0.86, 0.12, Enum.TextXAlignment.Center, 16)
+itemPlaceholder.TextColor3 = TEXT_DIM
 
-local detailPlaceholder =
-	makeLabel(detail, "Select an item to inspect it.", 0.5, 0.5, 0.86, 0.12, Enum.TextXAlignment.Center, 16)
-detailPlaceholder.TextColor3 = TEXT_DIM
-
-local function findEntry(id: string?): Entry?
+local function findItem(id: string?): ItemEntry?
 	if not id then
 		return nil
 	end
@@ -247,23 +319,23 @@ local function findEntry(id: string?): Entry?
 	return nil
 end
 
-refreshDetail = function()
-	local entry = findEntry(selectedId)
+local function refreshItemDetail(): ()
+	local entry = findItem(selectedItemId)
 	if not entry then
-		detailPlaceholder.Visible = true
-		detailImage.Visible = false
-		detailName.Visible = false
-		detailDesc.Visible = false
+		itemPlaceholder.Visible = true
+		itemImage.Visible = false
+		itemName.Visible = false
+		itemDesc.Visible = false
 		useButton.Visible = false
 		return
 	end
-	detailPlaceholder.Visible = false
-	detailImage.Visible = true
-	detailImage.Image = entry.image
-	detailName.Visible = true
-	detailName.Text = entry.displayName
-	detailDesc.Visible = true
-	detailDesc.Text = entry.description
+	itemPlaceholder.Visible = false
+	itemImage.Visible = true
+	itemImage.Image = entry.image
+	itemName.Visible = true
+	itemName.Text = entry.displayName
+	itemDesc.Visible = true
+	itemDesc.Text = entry.description
 	useButton.Visible = true
 	if entry.interactable then
 		useButton.Text = "Use"
@@ -280,18 +352,14 @@ refreshDetail = function()
 	end
 end
 
--- Item cells -------------------------------------------------------------------------------------
+local itemCells: { Instance } = {}
 
-local cellWrappers: { Instance } = {}
-
-local function makeCell(entry: Entry, order: number): ()
-	-- Transparent wrapper sized by the grid; the visible button insets so cells have a gap without
-	-- any padding object.
+local function makeCell(entry: ItemEntry, order: number): ()
 	local wrapper = Instance.new("Frame")
 	wrapper.BackgroundTransparency = 1
 	wrapper.LayoutOrder = order
 	wrapper.Parent = gridScroller
-	table.insert(cellWrappers, wrapper)
+	table.insert(itemCells, wrapper)
 
 	local cell = Instance.new("TextButton")
 	cell.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -322,41 +390,400 @@ local function makeCell(entry: Entry, order: number): ()
 
 	local id = entry.id
 	cell.Activated:Connect(function()
-		selectedId = id
-		refreshDetail()
+		selectedItemId = id
+		refreshItemDetail()
 	end)
 end
 
-rebuildGrid = function()
-	for _, wrapper in cellWrappers do
+local function rebuildGrid(): ()
+	for _, wrapper in itemCells do
 		wrapper:Destroy()
 	end
-	table.clear(cellWrappers)
+	table.clear(itemCells)
 	for index, entry in items do
 		makeCell(entry, index)
 	end
-	emptyNotice.Visible = #items == 0
+	itemsEmpty.Visible = #items == 0
 end
 
--- Open / close ----------------------------------------------------------------------------------
-
-local function applyView(view: { Entry }?)
+local function applyItemView(view: { ItemEntry }?): ()
 	items = view or {}
-	-- Drop the selection if the selected item is no longer present (e.g. used the last one).
-	if selectedId and not findEntry(selectedId) then
-		selectedId = nil
+	if selectedItemId and not findItem(selectedItemId) then
+		selectedItemId = nil
 	end
 	rebuildGrid()
-	refreshDetail()
+	refreshItemDetail()
 end
 
-local function openPanel()
-	local view = Remotes.GetInventory:InvokeServer() :: { Entry }?
-	applyView(view)
+local function pullItems(): ()
+	applyItemView(Remotes.GetInventory:InvokeServer() :: { ItemEntry }?)
+end
+
+useButton.Activated:Connect(function()
+	local entry = findItem(selectedItemId)
+	if entry and entry.interactable then
+		Remotes.UseItem:FireServer(entry.id)
+	end
+end)
+
+-- ================================================================================================
+-- SKILLS TAB (combined Passives + Moves + Forms)
+-- ================================================================================================
+
+type LoadoutView = { catalogue: { any }, loadout: { string } }
+
+local skillCatalogue: { any } = {}
+local skillLoadout: { string } = { "", "", "", "", "" }
+local formCatalogue: { any } = {}
+local formLoadout: { string } = { "", "", "", "", "" }
+local passiveList: { any } = {}
+
+local abilities: { AbilityEntry } = {}
+local selectedAbilityId: string? = nil
+local sortMode = "Type" -- "Type" | "Name"
+
+-- Forward declarations (closures below reference these before they're assigned).
+local rebuildAbilityList: () -> ()
+local refreshAbilityDetail: () -> ()
+
+local function indexInLoadout(loadout: { string }, id: string): number?
+	for i = 1, LOADOUT_SIZE do
+		if loadout[i] == id then
+			return i
+		end
+	end
+	return nil
+end
+
+local function buildAbilities(): ()
+	table.clear(abilities)
+	for _, c in skillCatalogue do
+		table.insert(abilities, {
+			id = c.id,
+			displayName = c.displayName,
+			kind = "Skill",
+			typeLabel = "Skill",
+			description = c.description or "",
+			unlocked = c.unlocked == true,
+			equippable = true,
+			slotKind = "Skill",
+			slotIndex = indexInLoadout(skillLoadout, c.id),
+		})
+	end
+	for _, c in formCatalogue do
+		table.insert(abilities, {
+			id = c.id,
+			displayName = c.displayName,
+			kind = "Form",
+			typeLabel = c.kind or "Form", -- "Form" or "Technique"
+			description = c.description or "",
+			unlocked = c.unlocked == true,
+			equippable = true,
+			slotKind = "Form",
+			slotIndex = indexInLoadout(formLoadout, c.id),
+		})
+	end
+	for _, p in passiveList do
+		table.insert(abilities, {
+			id = p.id,
+			displayName = p.displayName,
+			kind = "Passive",
+			typeLabel = "Passive",
+			description = p.description or "",
+			unlocked = true,
+			equippable = false,
+			slotKind = nil,
+			slotIndex = nil,
+		})
+	end
+
+	if sortMode == "Name" then
+		table.sort(abilities, function(a, b)
+			return a.displayName < b.displayName
+		end)
+	else
+		table.sort(abilities, function(a, b)
+			if a.kind ~= b.kind then
+				return (KIND_ORDER[a.kind] or 9) < (KIND_ORDER[b.kind] or 9)
+			end
+			return a.displayName < b.displayName
+		end)
+	end
+end
+
+local function findAbility(id: string?): AbilityEntry?
+	if not id then
+		return nil
+	end
+	for _, entry in abilities do
+		if entry.id == id then
+			return entry
+		end
+	end
+	return nil
+end
+
+-- Sort control + list ----------------------------------------------------------------------------
+
+local sortButton = makeButton(skillsContent, "Sort: Type", 0.15, 0.035, 0.26, 0.06, 14)
+sortButton.BackgroundColor3 = ROW_BG
+sortButton.Activated:Connect(function()
+	sortMode = if sortMode == "Type" then "Name" else "Type"
+	sortButton.Text = `Sort: {sortMode}`
+	buildAbilities()
+	rebuildAbilityList()
+end)
+
+local listScroller = Instance.new("ScrollingFrame")
+listScroller.Name = "AbilityList"
+listScroller.AnchorPoint = Vector2.new(0.5, 0.5)
+listScroller.Position = UDim2.fromScale(0.31, 0.55)
+listScroller.Size = UDim2.fromScale(0.6, 0.88)
+listScroller.BackgroundTransparency = 1
+listScroller.BorderSizePixel = 0
+listScroller.ScrollBarThickness = 6
+listScroller.ScrollBarImageColor3 = ACCENT
+listScroller.AutomaticCanvasSize = Enum.AutomaticSize.XY
+listScroller.CanvasSize = UDim2.new(0, 0, 0, 0)
+listScroller.Parent = skillsContent
+
+local listLayout = Instance.new("UIListLayout")
+listLayout.FillDirection = Enum.FillDirection.Vertical
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+listLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+listLayout.Parent = listScroller
+
+local abilitiesEmpty =
+	makeLabel(skillsContent, "Nothing here yet.", 0.31, 0.55, 0.5, 0.06, Enum.TextXAlignment.Center, 16)
+abilitiesEmpty.TextColor3 = TEXT_DIM
+abilitiesEmpty.Visible = false
+
+-- Detail pane (right) ----------------------------------------------------------------------------
+
+local abDetail = Instance.new("Frame")
+abDetail.AnchorPoint = Vector2.new(0.5, 0.5)
+abDetail.Position = UDim2.fromScale(0.8, 0.5)
+abDetail.Size = UDim2.fromScale(0.38, 0.98)
+abDetail.BackgroundColor3 = SLOT_BG
+abDetail.BackgroundTransparency = 0.2
+corner(abDetail, 0.05)
+abDetail.Parent = skillsContent
+
+local abName = makeLabel(abDetail, "", 0.5, 0.07, 0.92, 0.08, Enum.TextXAlignment.Center, 18)
+abName.Font = Enum.Font.GothamBold
+abName.Visible = false
+
+local abTag = makeLabel(abDetail, "", 0.5, 0.15, 0.6, 0.05, Enum.TextXAlignment.Center, 12)
+abTag.Font = Enum.Font.GothamBold
+abTag.Visible = false
+
+local abDesc = makeLabel(abDetail, "", 0.5, 0.47, 0.9, 0.56, Enum.TextXAlignment.Left, 14)
+abDesc.TextWrapped = true
+abDesc.TextYAlignment = Enum.TextYAlignment.Top
+abDesc.TextColor3 = TEXT_DIM
+abDesc.Visible = false
+
+local abSlotHint = makeLabel(abDetail, "Assign to a key:", 0.5, 0.82, 0.9, 0.05, Enum.TextXAlignment.Center, 13)
+abSlotHint.TextColor3 = TEXT_DIM
+abSlotHint.Visible = false
+
+local abSlotRow = Instance.new("Frame")
+abSlotRow.AnchorPoint = Vector2.new(0.5, 0.5)
+abSlotRow.Position = UDim2.fromScale(0.5, 0.92)
+abSlotRow.Size = UDim2.fromScale(0.92, 0.1)
+abSlotRow.BackgroundTransparency = 1
+abSlotRow.Visible = false
+abSlotRow.Parent = abDetail
+
+local slotButtons: { TextButton } = {}
+for i = 1, LOADOUT_SIZE do
+	local b = makeButton(abSlotRow, "", (i - 0.5) / LOADOUT_SIZE, 0.5, 0.17, 1, 16)
+	b.BackgroundColor3 = SLOT_BG
+	local index = i
+	b.Activated:Connect(function()
+		local entry = findAbility(selectedAbilityId)
+		if not entry or not entry.equippable or not entry.unlocked then
+			return
+		end
+		-- Click the current slot to clear it; otherwise (re)assign to this key.
+		local newId = if entry.slotIndex == index then "" else entry.id
+		local loadout = if entry.slotKind == "Skill" then skillLoadout else formLoadout
+		-- Optimistic local update mirroring the server's one-per-slot rule.
+		for k = 1, LOADOUT_SIZE do
+			if loadout[k] == entry.id then
+				loadout[k] = ""
+			end
+		end
+		loadout[index] = newId
+		if entry.slotKind == "Skill" then
+			Remotes.SetSkillLoadout:FireServer(index, newId)
+		else
+			Remotes.SetFormLoadout:FireServer(index, newId)
+		end
+		buildAbilities()
+		rebuildAbilityList()
+		refreshAbilityDetail()
+	end)
+	slotButtons[i] = b
+end
+
+local abPlaceholder = makeLabel(abDetail, "Select an ability.", 0.5, 0.5, 0.86, 0.12, Enum.TextXAlignment.Center, 16)
+abPlaceholder.TextColor3 = TEXT_DIM
+
+refreshAbilityDetail = function()
+	local entry = findAbility(selectedAbilityId)
+	if not entry then
+		abPlaceholder.Visible = true
+		abName.Visible = false
+		abTag.Visible = false
+		abDesc.Visible = false
+		abSlotHint.Visible = false
+		abSlotRow.Visible = false
+		return
+	end
+	abPlaceholder.Visible = false
+	abName.Visible = true
+	abName.Text = entry.displayName
+	abTag.Visible = true
+	abTag.Text = entry.typeLabel
+	abTag.TextColor3 = KIND_COLOR[entry.kind] or TEXT_DIM
+	abDesc.Visible = true
+	abDesc.Text = entry.description
+
+	local showSlots = entry.equippable and entry.unlocked
+	abSlotHint.Visible = showSlots
+	abSlotRow.Visible = showSlots
+	if showSlots then
+		abSlotHint.Text = if entry.slotIndex
+			then `Equipped on key {slotKeyName(entry.slotKind, entry.slotIndex)} — tap it to remove`
+			else "Tap a key to equip"
+		for i = 1, LOADOUT_SIZE do
+			local b = slotButtons[i]
+			b.Text = slotKeyName(entry.slotKind, i)
+			local isCurrent = entry.slotIndex == i
+			b.BackgroundColor3 = if isCurrent then ACCENT else SLOT_BG
+			b.TextColor3 = if isCurrent then SLOT_BG else TEXT_COLOR
+		end
+	end
+end
+
+local abilityRows: { Instance } = {}
+
+local function makeAbilityRow(entry: AbilityEntry, order: number): ()
+	local outer = Instance.new("Frame")
+	outer.AnchorPoint = Vector2.new(0.5, 0.5)
+	outer.Size = UDim2.fromScale(0.97, 0.14)
+	outer.BackgroundTransparency = 1
+	outer.LayoutOrder = order
+	outer.Parent = listScroller
+	table.insert(abilityRows, outer)
+
+	local card = Instance.new("TextButton")
+	card.AnchorPoint = Vector2.new(0.5, 0.5)
+	card.Position = UDim2.fromScale(0.5, 0.5)
+	card.Size = UDim2.fromScale(1, 0.86)
+	card.BackgroundColor3 = ROW_BG
+	card.BackgroundTransparency = if entry.unlocked then 0.35 else 0.72
+	card.AutoButtonColor = true
+	card.Text = ""
+	corner(card, 0.22)
+	stroke(card, 0.025, KIND_COLOR[entry.kind] or ACCENT, 0.15)
+	card.Parent = outer
+
+	local nameLabel = makeLabel(card, entry.displayName, 0.35, 0.5, 0.6, 0.5, Enum.TextXAlignment.Left, 15)
+	nameLabel.TextColor3 = if entry.unlocked then TEXT_COLOR else TEXT_DIM
+
+	local tag = makeLabel(card, entry.typeLabel, 0.83, 0.32, 0.3, 0.32, Enum.TextXAlignment.Right, 11)
+	tag.TextColor3 = KIND_COLOR[entry.kind] or TEXT_DIM
+
+	-- Status: equipped key / Off / Innate / Locked.
+	local statusText, statusColor
+	if not entry.unlocked then
+		statusText, statusColor = "Locked", TEXT_DIM
+	elseif not entry.equippable then
+		statusText, statusColor = "Innate", TEXT_DIM
+	elseif entry.slotIndex then
+		statusText, statusColor = `Key {slotKeyName(entry.slotKind, entry.slotIndex)}`, ACCENT
+	else
+		statusText, statusColor = "Off", TEXT_DIM
+	end
+	local status = makeLabel(card, statusText, 0.83, 0.68, 0.3, 0.32, Enum.TextXAlignment.Right, 11)
+	status.TextColor3 = statusColor
+
+	local id = entry.id
+	card.Activated:Connect(function()
+		selectedAbilityId = id
+		refreshAbilityDetail()
+	end)
+end
+
+rebuildAbilityList = function()
+	for _, row in abilityRows do
+		row:Destroy()
+	end
+	table.clear(abilityRows)
+	for index, entry in abilities do
+		makeAbilityRow(entry, index)
+	end
+	abilitiesEmpty.Visible = #abilities == 0
+end
+
+local function pullAbilities(): ()
+	local sv = Remotes.GetSkillLoadout:InvokeServer() :: LoadoutView?
+	if typeof(sv) == "table" and typeof(sv.catalogue) == "table" then
+		skillCatalogue = sv.catalogue
+		skillLoadout = { "", "", "", "", "" }
+		for i = 1, LOADOUT_SIZE do
+			skillLoadout[i] = (sv.loadout and sv.loadout[i]) or ""
+		end
+	end
+	local fv = Remotes.GetFormLoadout:InvokeServer() :: LoadoutView?
+	if typeof(fv) == "table" and typeof(fv.catalogue) == "table" then
+		formCatalogue = fv.catalogue
+		formLoadout = { "", "", "", "", "" }
+		for i = 1, LOADOUT_SIZE do
+			formLoadout[i] = (fv.loadout and fv.loadout[i]) or ""
+		end
+	end
+	local pv = Remotes.GetPassives:InvokeServer()
+	passiveList = (if typeof(pv) == "table" then pv else {}) :: { any }
+
+	buildAbilities()
+	if selectedAbilityId and not findAbility(selectedAbilityId) then
+		selectedAbilityId = nil
+	end
+	rebuildAbilityList()
+	refreshAbilityDetail()
+end
+
+-- ================================================================================================
+-- Tabs + open/close
+-- ================================================================================================
+
+local function setTab(itemsActive: boolean): ()
+	itemsContent.Visible = itemsActive
+	skillsContent.Visible = not itemsActive
+	itemsTabButton.BackgroundColor3 = if itemsActive then ROW_BG else TAB_INACTIVE
+	itemsTabButton.TextColor3 = if itemsActive then ACCENT else TEXT_DIM
+	skillsTabButton.BackgroundColor3 = if itemsActive then TAB_INACTIVE else ROW_BG
+	skillsTabButton.TextColor3 = if itemsActive then TEXT_DIM else ACCENT
+end
+
+itemsTabButton.Activated:Connect(function()
+	setTab(true)
+end)
+skillsTabButton.Activated:Connect(function()
+	setTab(false)
+end)
+
+local function openPanel(): ()
+	pullItems()
+	pullAbilities()
 	panel.Visible = true
 end
 
-local function togglePanel()
+local function togglePanel(): ()
 	if panel.Visible then
 		panel.Visible = false
 	else
@@ -369,13 +796,6 @@ closeButton.Activated:Connect(function()
 	panel.Visible = false
 end)
 
-useButton.Activated:Connect(function()
-	local entry = findEntry(selectedId)
-	if entry and entry.interactable then
-		Remotes.UseItem:FireServer(entry.id)
-	end
-end)
-
 UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
 	if gameProcessed then
 		return
@@ -385,14 +805,21 @@ UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: 
 	end
 end)
 
--- Live updates: the server pushes a fresh list after any use/grant. Only redraw if the panel is open
--- (it re-pulls on open anyway), but always keep the cached list current.
+-- Live updates while open: item counts after a use/grant, and the form row after a rearrange.
 Remotes.InventoryChanged.OnClientEvent:Connect(function(list: any)
-	if panel.Visible then
-		applyView(list :: { Entry }?)
+	if panel.Visible and itemsContent.Visible then
+		applyItemView(list :: { ItemEntry }?)
 	else
-		items = (list :: { Entry }?) or {}
+		items = (list :: { ItemEntry }?) or {}
 	end
 end)
 
-refreshDetail()
+Remotes.FormLoadoutChanged.OnClientEvent:Connect(function()
+	if panel.Visible then
+		pullAbilities()
+	end
+end)
+
+setTab(true)
+refreshItemDetail()
+refreshAbilityDetail()

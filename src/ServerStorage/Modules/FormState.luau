@@ -436,21 +436,42 @@ function FormState.setLoadout(player: Player, index: number, formId: string): bo
 	return true
 end
 
--- First-spawn convenience: if the loadout is entirely empty, fill keys 6-0 with the race's ability
--- line in order (preserving today's default bar). Idempotent; never overwrites a player's choices.
-function FormState.autoDefaultLoadout(slot: any, race: string): ()
+-- Reconcile the active slot's 6-0 loadout with the current race, on spawn:
+--   * prune any equipped ability this race can't use (e.g. left over after a reroll), then
+--   * if no race-specific Form remains, (re)build the default race line (keys 6-0 in order).
+-- Idempotent for a stable race; preserves a player's arrangement as long as it still holds a race
+-- form, while guaranteeing a freshly-rolled race's forms populate the bar.
+function FormState.reconcileLoadout(slot: any, race: string): ()
 	if not slot.FormLoadout then
 		slot.FormLoadout = { "", "", "", "", "" }
 	end
+	local loadout = slot.FormLoadout
+	-- Drop entries this race can't use.
 	for i = 1, 5 do
-		if slot.FormLoadout[i] ~= nil and slot.FormLoadout[i] ~= "" then
-			return
+		local id = loadout[i]
+		if id ~= "" then
+			local def = FormConfig.get(id)
+			if not def or (def.race ~= "Any" and def.race ~= race) then
+				loadout[i] = ""
+			end
 		end
 	end
-	local abilities = FormConfig.getRaceAbilities(race)
+	-- Still holding a race-specific Form? If not (empty, or only race-agnostic techniques), default
+	-- the whole row to the race line.
+	local hasRaceForm = false
 	for i = 1, 5 do
-		local entry = abilities[i]
-		slot.FormLoadout[i] = if entry then entry.id else ""
+		local def = if loadout[i] ~= "" then FormConfig.get(loadout[i]) else nil
+		if def and def.kind == "Form" and def.race == race then
+			hasRaceForm = true
+			break
+		end
+	end
+	if not hasRaceForm then
+		local abilities = FormConfig.getRaceAbilities(race)
+		for i = 1, 5 do
+			local entry = abilities[i]
+			loadout[i] = if entry then entry.id else ""
+		end
 	end
 end
 

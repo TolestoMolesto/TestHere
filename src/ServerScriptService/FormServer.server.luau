@@ -33,12 +33,13 @@ Remotes.SetFormLoadout.OnServerEvent:Connect(function(player: Player, index: any
 	end
 end)
 
--- Fill the 6-0 loadout with the race's line on first spawn (idempotent; never fights player choices).
+-- Reconcile the 6-0 loadout with the slot's race on spawn (prunes stale forms after a reroll, fills
+-- the default race line when none remain; otherwise leaves the player's arrangement alone).
 local function bindCharacter(player: Player)
 	task.defer(function()
 		local slot = Manager.getActiveSlot(player)
 		if slot then
-			FormState.autoDefaultLoadout(slot, slot.Race)
+			FormState.reconcileLoadout(slot, slot.Race)
 		end
 	end)
 end
