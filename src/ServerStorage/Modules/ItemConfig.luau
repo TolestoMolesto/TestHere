@@ -30,44 +30,145 @@ export type ItemDef = {
 	},
 }
 
+local SENSU_SEED_DROP = { seedDropItemId = "SensuBeanSeed", seedDropChance = 0.25 }
+
 local items: { [string]: ItemDef } = {
-	SenzuBean = {
-		displayName = "Senzu Bean",
+	SensuBean33 = {
+		displayName = "Sensu Bean",
 		type = "Consumable",
-		rarity = "Rare",
-		maxAmount = 5,
+		rarity = "Common",
+		maxAmount = 10,
 		image = "rbxassetid://0",
 		interactable = true,
 		behavior = "InstantRestore",
-		params = { health = 1, ki = 1, stamina = 1 },
+		params = { health = 0.33, ki = 0.33, stamina = 0.33, seedDropItemId = SENSU_SEED_DROP.seedDropItemId, seedDropChance = SENSU_SEED_DROP.seedDropChance },
 		description = {
-			summary = "A mystical bean grown at Korin's Tower. Eating one instantly restores your body "
-				.. "to peak condition -- mending every wound and refilling your energy in a single bite.",
+			summary = "A mystical bean grown at Korin's Tower. This weaker bean instantly restores part of your body and energy.",
 			effects = {
-				"Health Restore: 100%",
-				"Ki Restore: 100%",
-				"Stamina Restore: 100%",
+				"Health Restore: 33%",
+				"Ki Restore: 33%",
+				"Stamina Restore: 33%",
+				"25% chance to create a Sensu Bean Seed",
 			},
 		},
 	},
 
-	SenzuBean75OT = {
-		displayName = "Senzu Bean (Sustained)",
+	SensuBean66 = {
+		displayName = "Sensu Bean",
+		type = "Consumable",
+		rarity = "Rare",
+		maxAmount = 10,
+		image = "rbxassetid://0",
+		interactable = true,
+		behavior = "InstantRestore",
+		params = { health = 0.66, ki = 0.66, stamina = 0.66, seedDropItemId = SENSU_SEED_DROP.seedDropItemId, seedDropChance = SENSU_SEED_DROP.seedDropChance },
+		description = {
+			summary = "A mystical bean grown at Korin's Tower. Eating one instantly restores a large portion of your body and energy.",
+			effects = {
+				"Health Restore: 66%",
+				"Ki Restore: 66%",
+				"Stamina Restore: 66%",
+				"25% chance to create a Sensu Bean Seed",
+			},
+		},
+	},
+
+	-- Backwards-compatible id for the original full bean, now displayed as Sensu Bean.
+	SenzuBean = {
+		displayName = "Sensu Bean",
+		type = "Consumable",
+		rarity = "Legendary",
+		maxAmount = 5,
+		image = "rbxassetid://0",
+		interactable = true,
+		behavior = "InstantRestore",
+		params = { health = 1, ki = 1, stamina = 1, seedDropItemId = SENSU_SEED_DROP.seedDropItemId, seedDropChance = SENSU_SEED_DROP.seedDropChance },
+		description = {
+			summary = "A mystical bean grown at Korin's Tower. Eating one instantly restores your body to peak condition.",
+			effects = {
+				"Health Restore: 100%",
+				"Ki Restore: 100%",
+				"Stamina Restore: 100%",
+				"25% chance to create a Sensu Bean Seed",
+			},
+		},
+	},
+
+	SensuBean33OT = {
+		displayName = "Sensu Bean",
 		type = "Consumable",
 		rarity = "Uncommon",
 		maxAmount = 10,
 		image = "rbxassetid://0",
 		interactable = true,
 		behavior = "RestoreOverTime",
-		params = { fraction = 0.75, duration = 30 },
+		params = { fraction = 0.33, duration = 30, seedDropItemId = SENSU_SEED_DROP.seedDropItemId, seedDropChance = SENSU_SEED_DROP.seedDropChance },
 		description = {
 			note = "Heals gradually -- stay alive to reap the full benefit.",
-			summary = "A half-ripened senzu. Instead of an instant cure, its energy seeps in over time, "
-				.. "steadily knitting wounds and restoring your stamina and ki.",
+			summary = "A slow-release Sensu Bean. Its energy seeps in over time, steadily restoring your body, stamina, and ki.",
 			effects = {
-				"Health Restore: 75% over 30s",
-				"Ki Restore: 75% over 30s",
-				"Stamina Restore: 75% over 30s",
+				"Health Restore: 33% over 30s",
+				"Ki Restore: 33% over 30s",
+				"Stamina Restore: 33% over 30s",
+				"25% chance to create a Sensu Bean Seed",
+			},
+		},
+	},
+
+	SensuBean66OT = {
+		displayName = "Sensu Bean",
+		type = "Consumable",
+		rarity = "Epic",
+		maxAmount = 10,
+		image = "rbxassetid://0",
+		interactable = true,
+		behavior = "RestoreOverTime",
+		params = { fraction = 0.66, duration = 30, seedDropItemId = SENSU_SEED_DROP.seedDropItemId, seedDropChance = SENSU_SEED_DROP.seedDropChance },
+		description = {
+			note = "Heals gradually -- stay alive to reap the full benefit.",
+			summary = "A slow-release Sensu Bean. Its energy seeps in over time, steadily restoring your body, stamina, and ki.",
+			effects = {
+				"Health Restore: 66% over 30s",
+				"Ki Restore: 66% over 30s",
+				"Stamina Restore: 66% over 30s",
+				"25% chance to create a Sensu Bean Seed",
+			},
+		},
+	},
+
+	SensuBean100OT = {
+		displayName = "Sensu Bean",
+		type = "Consumable",
+		rarity = "Mythic",
+		maxAmount = 5,
+		image = "rbxassetid://0",
+		interactable = true,
+		behavior = "RestoreOverTime",
+		params = { fraction = 1, duration = 30, seedDropItemId = SENSU_SEED_DROP.seedDropItemId, seedDropChance = SENSU_SEED_DROP.seedDropChance },
+		description = {
+			note = "Heals gradually -- stay alive to reap the full benefit.",
+			summary = "A slow-release Sensu Bean. Its energy seeps in over time, steadily restoring your body, stamina, and ki.",
+			effects = {
+				"Health Restore: 100% over 30s",
+				"Ki Restore: 100% over 30s",
+				"Stamina Restore: 100% over 30s",
+				"25% chance to create a Sensu Bean Seed",
+			},
+		},
+	},
+
+	SensuBeanSeed = {
+		displayName = "Sensu Bean Seed",
+		type = "Material",
+		rarity = "Common",
+		maxAmount = 99,
+		image = "rbxassetid://0",
+		interactable = true,
+		behavior = "NoOp",
+		description = {
+			summary = "A tiny seed from a Sensu Bean. It does nothing for now.",
+			effects = {
+				"No effect",
 			},
 		},
 	},
@@ -111,7 +212,7 @@ local RARITY_RANK: { [string]: number } = {
 
 -- Roster as a stable array, sorted by type, then rarity rank, then display name (UI ordering).
 function ItemConfig.list(): { { id: string, def: ItemDef } }
-	local out: { { id: string, def: ItemDef } } = {}
+	local out: { { id: string, def: def } } = {}
 	for id, def in items do
 		table.insert(out, { id = id, def = def })
 	end
