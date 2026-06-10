@@ -41,8 +41,12 @@ local function seedTestItems(player: Player)
 		return -- profile not loaded yet; a later spawn will catch it
 	end
 	-- add() clamps to maxAmount, so these refill to the cap each spawn (idempotent, never stacks).
+	Inventory.add(player, "SensuBean33", 10)
+	Inventory.add(player, "SensuBean66", 10)
 	Inventory.add(player, "SenzuBean", 5)
-	Inventory.add(player, "SenzuBean75OT", 10)
+	Inventory.add(player, "SensuBean33OT", 10)
+	Inventory.add(player, "SensuBean66OT", 10)
+	Inventory.add(player, "SensuBean100OT", 5)
 	Inventory.add(player, "DragonRadar", 1)
 	pushInventory(player)
 end
