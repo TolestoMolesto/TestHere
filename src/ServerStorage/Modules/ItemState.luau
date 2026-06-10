@@ -42,6 +42,18 @@ local function loadBehavior(name: string): ((Context) -> ())?
 	return fn
 end
 
+local function rollSeedDrop(player: Player, def: ItemConfig.ItemDef): ()
+	local params: { [string]: any } = def.params or {}
+	local seedDropItemId = params.seedDropItemId :: string?
+	local seedDropChance = params.seedDropChance :: number?
+	if not seedDropItemId or not seedDropChance or seedDropChance <= 0 then
+		return
+	end
+	if math.random() <= math.clamp(seedDropChance, 0, 1) then
+		Inventory.add(player, seedDropItemId, 1)
+	end
+end
+
 -- Try to use one of `itemId` from the player's active slot. Returns true if it was consumed + run.
 function ItemState.use(player: Player, itemId: string): boolean
 	local def = ItemConfig.get(itemId)
@@ -88,6 +100,7 @@ function ItemState.use(player: Player, itemId: string): boolean
 	if not Inventory.remove(player, itemId, 1) then
 		return false
 	end
+	rollSeedDrop(player, def)
 	if def.cooldown and def.cooldown > 0 then
 		character:SetAttribute(`Item_{itemId}_ReadyAt`, now + def.cooldown)
 	end
