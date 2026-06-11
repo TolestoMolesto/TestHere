@@ -4,6 +4,7 @@ local CollectionService = game:GetService("CollectionService")
 local ServerStorage = game:GetService("ServerStorage")
 
 local Manager = require(ServerStorage.Modules.Manager)
+local Age = require(ServerStorage.Modules.Age)
 local Assets = ServerStorage:WaitForChild("Assets")
 
 type RGBColor = { R: number, G: number, B: number }
@@ -54,6 +55,13 @@ local RACE_SIZES: { [string]: number } = {
 	Human = 1.0,
 	Majin = 1.0,
 }
+
+-- Full intended body scale for a slot: the race's base size folded with the age-driven scale (kids
+-- spawn small and grow to full size as PlayTime accrues -- see ServerStorage.Modules.Age). Exposed on
+-- the module so AgeServer can re-apply this exact value to a live character between respawns.
+local function bodyScale(slot: any): number
+	return (RACE_SIZES[slot.Race] or 1) * Age.scaleOf(slot)
+end
 
 local OUTFIT_EXTRAS: { [string]: { string } } = {
 	TrainingGi = {
@@ -166,6 +174,30 @@ local function addAccessory(humanoid: Humanoid, template: Accessory, body: Color
 	local acc = template:Clone()
 	colorAccessory(acc, body, hair, ki)
 	humanoid:AddAccessory(acc)
+end
+
+-- Resize a cloned accessory to match a character that's already been scaled (e.g. an age-shrunk kid).
+-- A throwaway Model lets the engine's ScaleTo handle the Handle, its mesh, attachments and any nested
+-- welded parts exactly the way the body was scaled -- so an accessory equipped AFTER the body shrank
+-- fits it instead of arriving full-size. No-op at ~1 (a normal full-size character). Accessories added
+-- during buildAppearance don't need this: the build normalizes to 1 first, then the closing ScaleTo
+-- scales them with the body. This is for LIVE equips onto an already-scaled character.
+local function scaleAccessory(acc: Accessory, scale: number)
+	if math.abs(scale - 1) <= 1e-3 then
+		return
+	end
+	local handle = acc:FindFirstChildWhichIsA("BasePart") :: BasePart?
+	if not handle then
+		return
+	end
+	local wrapper = Instance.new("Model")
+	local prevParent = acc.Parent
+	acc.Parent = wrapper
+	wrapper.PrimaryPart = handle
+	wrapper.Parent = ServerStorage -- keep it in the DataModel so ScaleTo definitely applies; never replicated
+	wrapper:ScaleTo(scale)
+	acc.Parent = prevParent
+	wrapper:Destroy()
 end
 
 local function applyBodyColors(character: Model, color: Color3)
@@ -503,7 +535,11 @@ local function applyScouter(character: Model, scouterName: string?)
 	local itemsFolder = Assets:FindFirstChild("Items")
 	local template = itemsFolder and itemsFolder:FindFirstChild(scouterName)
 	if template and template:IsA("Accessory") then
-		humanoid:AddAccessory(template:Clone())
+		-- Scale to the body's current size: a no-op during a fresh build (character is at 1 here, the
+		-- closing ScaleTo handles it) but a real fit when toggled live onto an already-shrunk character.
+		local acc = template:Clone()
+		scaleAccessory(acc, character:GetScale())
+		humanoid:AddAccessory(acc)
 	else
 		warn("[PlayerRaceBuilder] Scouter accessory not found:", scouterName)
 	end
@@ -515,6 +551,16 @@ local function buildAppearance(character: Model, humanoid: Humanoid, slot: any)
 	local body = toColor3(slot.BodyColor)
 	local hair = toColor3(slot.HairColor)
 	local ki = toColor3(slot.KiColor)
+
+	-- Normalize to reference size (scale 1) BEFORE rebuilding. Callers can hand us an already-scaled
+	-- model: ShadowSpawner clones the owner's live, age-shrunk character, and the LSSJ re-grant runs a
+	-- second build on a character the first build already shrank. We re-add full-size accessories + head
+	-- below, so the closing ScaleTo must start from 1 to shrink the whole rig uniformly -- otherwise, on
+	-- an already-shrunk model, that ScaleTo is a no-op and the new parts tower over the small body. A
+	-- fresh player character is already at 1, so this is a no-op for the normal spawn path.
+	if math.abs(character:GetScale() - 1) > 1e-3 then
+		character:ScaleTo(1)
+	end
 
 	applyBodyColors(character, body)
 
@@ -561,8 +607,10 @@ local function buildAppearance(character: Model, humanoid: Humanoid, slot: any)
 
 	applyFace(character, race, gender, slot)
 
-	local scale = RACE_SIZES[race]
-	if scale and scale ~= 1 then
+	-- ScaleTo is the animation-safe resize for this R6 rig -- it rescales the Motor6D joints along with
+	-- the parts, so walk/idle/combat animations keep playing correctly at any size.
+	local scale = bodyScale(slot)
+	if math.abs(scale - 1) > 1e-3 then
 		character:ScaleTo(scale)
 	end
 end
@@ -591,6 +639,19 @@ local PlayerRaceBuilder = {}
 -- Exposed so the Items system (Items/ToggleScouter) can re-attach the worn scouter live, the same way a
 -- respawn does through buildFromSlot -> buildAppearance.
 PlayerRaceBuilder.applyScouter = applyScouter
+
+-- Exposed so AgeServer can grow a live character to the same scale a respawn would build it at.
+PlayerRaceBuilder.bodyScale = bodyScale
+
+-- THE path for equipping an accessory onto a live character (scouters, training weights, future
+-- wearables): clones, scales it to the body's current size, and welds it on. Use this instead of a raw
+-- humanoid:AddAccessory so accessories fit age-shrunk (or otherwise resized) characters.
+function PlayerRaceBuilder.addScaledAccessory(humanoid: Humanoid, character: Model, template: Accessory): Accessory
+	local acc = template:Clone()
+	scaleAccessory(acc, character:GetScale())
+	humanoid:AddAccessory(acc)
+	return acc
+end
 
 function PlayerRaceBuilder.buildFromSlot(character: Model, slot: any)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")

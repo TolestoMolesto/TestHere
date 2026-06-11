@@ -460,6 +460,7 @@ end
 
 -- ACTION priority so knockback reads OVER Core-priority locomotion; same call the AI uses.
 Animations.bindKnockbackAnimation(Figure)
+Animations.bindHitReactionAnimation(Figure)
 
 playAnimation("idle", 0.1, Humanoid)
 pose = "Standing"

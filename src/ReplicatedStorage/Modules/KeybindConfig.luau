@@ -34,6 +34,13 @@ local KeybindConfig: { [string]: Entry } = {
 	-- Opens the Inventory (bag) panel; owned by InventoryController. Keys 1-5/6-0 are taken by Skills
 	-- and Forms, so the bag lives on its own toggle.
 	Inventory = { default = Enum.KeyCode.Backquote, label = "Inventory", group = "Utility", order = 25 },
+	-- Opens the Party panel (roster + a player list to invite to party / challenge to spar). Owned by
+	-- PartyController. Spar challenges are sent from that panel, so spar needs no key of its own.
+	Party = { default = Enum.KeyCode.P, label = "Party", group = "Utility", order = 26 },
+	-- Ki suppression dial (PowerOutputController): step the shown BattlePower output up / down by 10%
+	-- (clamped 1-100). Only does anything while the slot owns the PowerSuppression passive.
+	RaisePower = { default = Enum.KeyCode.RightBracket, label = "Raise Power Output", group = "Utility", order = 27 },
+	LowerPower = { default = Enum.KeyCode.LeftBracket, label = "Lower Power Output", group = "Utility", order = 28 },
 
 	-- Offensive skill loadout (keys 1-5). Owned by SkillController, fired as the "Skill" action.
 	SkillSlot1 = { default = Enum.KeyCode.One, label = "Skill Slot 1", group = "Skills", order = 12 },

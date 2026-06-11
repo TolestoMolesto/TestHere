@@ -124,8 +124,11 @@ infoRow.Size = UDim2.fromScale(1, 0.2)
 infoRow.BackgroundTransparency = 1
 infoRow.Parent = container
 
-local livesLabel = makeLabel(infoRow, 0.26, 0.46, Enum.TextXAlignment.Left)
-local longevityLabel = makeLabel(infoRow, 0.74, 0.46, Enum.TextXAlignment.Right)
+local livesLabel = makeLabel(infoRow, 0.19, 0.34, Enum.TextXAlignment.Left)
+-- Centre readout: the Ki-suppression output %, shown only when the slot owns the passive (CanSuppress).
+local outputLabel = makeLabel(infoRow, 0.5, 0.3, Enum.TextXAlignment.Center)
+outputLabel.Visible = false
+local longevityLabel = makeLabel(infoRow, 0.81, 0.34, Enum.TextXAlignment.Right)
 
 local function setBar(bar: Bar, current: number, max: number): ()
 	local ratio = if max > 0 then math.clamp(current / max, 0, 1) else 0
@@ -188,9 +191,20 @@ local function bind(character: Model): ()
 			-- Longevity carries fractional drain from training; show a clean integer.
 			longevityLabel.Text = "Longevity: "
 				.. tostring(math.floor((stats:GetAttribute("Longevity") :: number?) or 0))
+			-- Power output: the % of true BattlePower this slot reveals. Hidden entirely until the slot
+			-- owns the suppression passive (CanSuppress) -- "non-visible until you get the skill".
+			local canSuppress = stats:GetAttribute("CanSuppress") == true
+			outputLabel.Visible = canSuppress
+			if canSuppress then
+				outputLabel.Text = "Output: "
+					.. tostring(math.floor((stats:GetAttribute("PowerOutput") :: number?) or 100))
+					.. "%"
+			end
 		end
 		table.insert(connections, stats:GetAttributeChangedSignal("Lives"):Connect(refreshNumbers))
 		table.insert(connections, stats:GetAttributeChangedSignal("Longevity"):Connect(refreshNumbers))
+		table.insert(connections, stats:GetAttributeChangedSignal("PowerOutput"):Connect(refreshNumbers))
+		table.insert(connections, stats:GetAttributeChangedSignal("CanSuppress"):Connect(refreshNumbers))
 		refreshNumbers()
 	end
 end

@@ -2,7 +2,7 @@
 -- assembles the read-only GetRollState the panel pulls on open. Everything is re-validated here --
 -- the client only ever sends a confirm flag or a race name. Rolling operates on the player's ACTIVE
 -- slot (the character they're currently in); like the free join-time auto-roll, the new race applies
--- to the body on the next spawn. (Code redemption lives in its own system -- see RaceCodes.luau.)
+-- to the body on the next spawn. (Code redemption lives in its own system -- see Codes.luau / CodesServer.)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")

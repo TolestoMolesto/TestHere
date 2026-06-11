@@ -1,5 +1,6 @@
 --!strict
 local Players = game:GetService("Players")
+local ServerStorage = game:GetService("ServerStorage")
 
 export type DamageCause = "Physical" | "Ki"
 
@@ -35,6 +36,19 @@ function Damage.apply(
 	-- callers read as "hit landed". (Scan/lock-on paths already exclude them; this is the backstop.)
 	if targetCharacter:GetAttribute("Forcefield") then
 		return 0
+	end
+
+	-- Spar interference: a hit on a sparring player from anyone who ISN'T their bout partner (another
+	-- player, an NPC) cancels the spar -- Spar.interfere reverts both fighters to their pre-spar
+	-- Health/Ki/Stamina and clears InSpar -- and then this hit falls through and lands as normal
+	-- combat. A partner's hit (matching InSpar) is left alone here; it's handled at the knockout
+	-- check below so dodge/resistances still shape the blow.
+	local targetSpar = targetCharacter:GetAttribute("InSpar")
+	if targetSpar ~= nil and targetSpar ~= "" then
+		local attackerSpar = if attackingCharacter then attackingCharacter:GetAttribute("InSpar") else nil
+		if attackerSpar ~= targetSpar then
+			require(ServerStorage.Modules.Spar).interfere(targetCharacter)
+		end
 	end
 
 	-- Dodge returns 0 (never the MIN_DAMAGE floor) so callers can detect a whiff and skip
@@ -79,6 +93,15 @@ function Damage.apply(
 
 	local humanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
 	if humanoid then
+		-- Spar knockout: a partner's blow that would down the target ends the bout with a full restore
+		-- instead of a ragdoll (first down wins). Return 0 -- a whiff -- so the caller skips its on-hit
+		-- reactions (combat tag, knockback, hit FX); Spar.onDown delivers the win + restore. Checked
+		-- here, after the damage calc, so dodge and resistances still decide if the blow connects.
+		local sparId = targetCharacter:GetAttribute("InSpar")
+		if sparId ~= nil and sparId ~= "" and humanoid.Health - damage <= 1 then
+			require(ServerStorage.Modules.Spar).onDown(targetCharacter)
+			return 0
+		end
 		-- Never land the killing blow: leave >= 1 HP so the knockout system (StateBinders)
 		-- takes over with a ragdoll/revive instead of Humanoid.Died racing it.
 		local survivable = math.max(humanoid.Health - 1, 0)

@@ -216,8 +216,8 @@ local closeButton = makeButton(panel, "X", 0.93, 0.07, 0.08, 0.06, 18)
 
 local slotList = Instance.new("ScrollingFrame")
 slotList.AnchorPoint = Vector2.new(0.5, 0.5)
-slotList.Position = UDim2.fromScale(0.5, 0.49)
-slotList.Size = UDim2.fromScale(0.9, 0.66)
+slotList.Position = UDim2.fromScale(0.5, 0.43)
+slotList.Size = UDim2.fromScale(0.9, 0.5)
 slotList.BackgroundTransparency = 1
 slotList.BorderSizePixel = 0
 slotList.ScrollBarThickness = 5
@@ -231,6 +231,70 @@ slotLayout.FillDirection = Enum.FillDirection.Vertical
 slotLayout.SortOrder = Enum.SortOrder.LayoutOrder
 slotLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 slotLayout.Parent = slotList
+
+-- Redeem-code row: type a code + hit Redeem. Account-wide rewards (Spins/Passes) apply instantly; item
+-- rewards are sent to the mailbox. Race-gated codes are rejected here on purpose (the server tells the
+-- player to use the in-game Settings box) -- we send source = "MainMenu" so it can make that call.
+local codeBox = Instance.new("TextBox")
+codeBox.Name = "CodeBox"
+codeBox.AnchorPoint = Vector2.new(0.5, 0.5)
+codeBox.Position = UDim2.fromScale(0.34, 0.75)
+codeBox.Size = UDim2.fromScale(0.56, 0.07)
+codeBox.BackgroundColor3 = SLOT_BG
+codeBox.ClearTextOnFocus = false
+codeBox.Font = Enum.Font.Gotham
+codeBox.PlaceholderText = "Enter code"
+codeBox.PlaceholderColor3 = TEXT_DIM
+codeBox.Text = ""
+codeBox.TextColor3 = TEXT_COLOR
+codeBox.TextScaled = true
+constrainText(codeBox, 8, 16)
+corner(codeBox, 0.3)
+stroke(codeBox, 0.03, ACCENT, 0.4)
+codeBox.Parent = panel
+
+local redeemButton = makeButton(panel, "Redeem", 0.8, 0.75, 0.22, 0.07, 16)
+redeemButton.BackgroundColor3 = SLOT_BG
+redeemButton.TextColor3 = ACCENT
+stroke(redeemButton, 0.03, ACCENT, 0.4)
+
+local codeStatus = makeLabel(panel, "", 0.5, 0.825, 0.86, 0.04, Enum.TextXAlignment.Center, 13)
+codeStatus.TextColor3 = TEXT_DIM
+
+local redeeming = false
+local function submitCode()
+	if redeeming then
+		return
+	end
+	if (codeBox.Text:gsub("%s+", "")) == "" then
+		codeStatus.Text = "Enter a code"
+		codeStatus.TextColor3 = BAD_COLOR
+		return
+	end
+	redeeming = true
+	redeemButton.Text = "..."
+	local res = Remotes.RedeemCode:InvokeServer(codeBox.Text, "MainMenu") :: { ok: boolean?, message: string? }?
+	redeeming = false
+	redeemButton.Text = "Redeem"
+	if typeof(res) == "table" then
+		local ok = res.ok == true
+		codeStatus.Text = res.message or (if ok then "Redeemed!" else "Couldn't redeem")
+		codeStatus.TextColor3 = if ok then GOOD_COLOR else BAD_COLOR
+		if ok then
+			codeBox.Text = ""
+		end
+	else
+		codeStatus.Text = "Couldn't redeem"
+		codeStatus.TextColor3 = BAD_COLOR
+	end
+end
+
+redeemButton.Activated:Connect(submitCode)
+codeBox.FocusLost:Connect(function(enterPressed: boolean)
+	if enterPressed then
+		submitCode()
+	end
+end)
 
 -- Footer Play button: launches the active slot (same as the corner Play), so you can pick + play here.
 local panelPlay = makeButton(panel, "PLAY", 0.5, 0.92, 0.5, 0.1, 26)

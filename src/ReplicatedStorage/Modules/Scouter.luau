@@ -6,7 +6,8 @@
 --
 -- Everything the scouter shows is read off already-replicated instance state, so no remotes
 -- are needed:
---   * a target's power  -> Humanoid.Stats.BattlePower        (written by StatsManager)
+--   * a target's power  -> Humanoid.Stats.DisplayedBattlePower (the Ki-suppressed readout; falls
+--                          back to BattlePower) -- both written by StatsManager
 --   * the local scouter -> Humanoid.Appearance.ScouterEquipped
 --
 -- Bounty / Party are not ported to the slot model yet: the colour-priority paths that read
@@ -47,8 +48,11 @@ Scouter.DEFAULT_MAX = math.huge
 -- Keyed by Humanoid.Appearance.ScouterEquipped -- the worn Accessory's name (see Items/ToggleScouter).
 -- An equipped-but-unlisted name still works via getTier's default fallback (shows everything).
 local CONFIG: { [string]: ScouterTier } = {
-	Basic = { Range = 300, Max = 24000 },
-	StarterScouter = { Range = 300, Max = 24000 },
+	-- The "It's over 9000!" lens: reads fine on fresh/established fighters but goes blind --
+	-- shows "Error" instead of a number -- the moment a target crosses 9,000 BP. In the new stat
+	-- economy that bites well before mid-game (BP reaches ~25k once every core stat hits Train's
+	-- ~5,000 earning knee), so the cap is early on purpose -- it's the gag, not a tuned value.
+	StarterScouter = { Range = 300, Max = 9000 },
 	AdminScouter = { Range = math.huge, Max = math.huge }, -- staff lens: sees everyone, never "Error"
 }
 
@@ -85,7 +89,9 @@ function Scouter.getEquipped(character: Model): string
 	return "None"
 end
 
--- A target's BattlePower off Humanoid.Stats, or nil if it has none (skip it).
+-- A target's power off Humanoid.Stats, or nil if it has none (skip it). Prefers the Ki-suppressed
+-- DisplayedBattlePower (so a target dialling their output down reads as a reduced number through the
+-- lens); falls back to the true BattlePower for NPCs / older rigs that never wrote the display attr.
 function Scouter.getBattlePower(target: Model): number?
 	local humanoid = target:FindFirstChildOfClass("Humanoid")
 	if not humanoid then
@@ -94,6 +100,10 @@ function Scouter.getBattlePower(target: Model): number?
 	local stats = humanoid:FindFirstChild("Stats")
 	if not stats then
 		return nil
+	end
+	local shown = stats:GetAttribute("DisplayedBattlePower")
+	if typeof(shown) == "number" then
+		return shown
 	end
 	local bp = stats:GetAttribute("BattlePower")
 	if typeof(bp) == "number" then

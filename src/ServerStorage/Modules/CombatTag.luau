@@ -70,6 +70,13 @@ function CombatTag.applyCombatTag(attackerCharacter: Model, targetCharacter: Mod
 	if attackerCharacter:GetAttribute("IsShadow") or targetCharacter:GetAttribute("IsShadow") then
 		return
 	end
+	-- Two players in the same spar are never combat-tagged by each other's hits -- the bout is
+	-- consequence-free. (An outsider's hit cancels the spar back in Damage.apply before reaching here,
+	-- so this only ever skips a genuine partner exchange.)
+	local attackerSpar = attackerCharacter:GetAttribute("InSpar")
+	if attackerSpar ~= nil and attackerSpar ~= "" and attackerSpar == targetCharacter:GetAttribute("InSpar") then
+		return
+	end
 	startCombatTimer(attackerCharacter)
 	startCombatTimer(targetCharacter)
 end

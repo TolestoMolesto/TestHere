@@ -66,6 +66,11 @@ Remotes.GetPassives.OnServerInvoke = function(player: Player)
 	local out = {}
 	for _, entry in PassiveConfig.forRace(race) do
 		local def = entry.def
+		-- Acquired passives (def.unlockFlag names a per-slot boolean) only surface once owned, so the tab
+		-- reflects what this slot can actually do instead of listing every race-universal trait.
+		if def.unlockFlag ~= nil and not (slot ~= nil and (slot :: any)[def.unlockFlag] == true) then
+			continue
+		end
 		table.insert(out, {
 			id = entry.id,
 			displayName = def.displayName,

@@ -217,12 +217,12 @@ local items: { [string]: ItemDef } = {
 		behavior = "ToggleWeights",
 		params = { weight = 0.25 },
 		description = {
-			summary = "A four-piece set of 0.25 ton training weights. Use them to toggle weight training on or off.",
+			summary = "A four-piece set of 0.25 ton training weights. Toggle them on to train harder: "
+				.. "every stat you earn from combat grows faster while the weights are worn.",
 			effects = {
 				"Wears weights on each arm and leg",
-				"Toggles WeightTraining",
-				"Weight: 0.25",
-				"Reusable",
+				"+25% training gains while worn",
+				"Toggles on/off, reusable",
 			},
 		},
 	},
@@ -427,10 +427,12 @@ local items: { [string]: ItemDef } = {
 		params = { scouter = "StarterScouter" }, -- Accessory name under ServerStorage.Assets.Items
 		description = {
 			summary = "A standard-issue scouter worn over one eye. Equip it, then hold the Scouter key to "
-				.. "scan nearby fighters and read their battle power.",
+				.. "scan nearby fighters and read their battle power -- though the lens can't make sense of "
+				.. "anything over 9,000.",
 			effects = {
 				"Equips / unequips the Starter Scouter",
 				"Hold the Scouter key to scan nearby power levels",
+				"Can't read battle powers above 9,000 -- the lens just errors out",
 				"Reusable",
 			},
 		},

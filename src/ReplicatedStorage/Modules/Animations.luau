@@ -43,6 +43,11 @@ Animations.NAMES = {
 	blockduringkb = { { id = "rbxassetid://124443176016389", weight = 10 } },
 	knockback = { { id = "rbxassetid://82247533092047", weight = 10 } },
 	recover = { { id = "rbxassetid://139543423482244", weight = 10 } },
+	hit1 = { { id = "rbxassetid://136813239852641", weight = 10 } },
+	hit2 = { { id = "rbxassetid://109816671003785", weight = 10 } },
+	hit3 = { { id = "rbxassetid://112152345528474", weight = 10 } },
+	hit4 = { { id = "rbxassetid://138160091821745", weight = 10 } },
+	hit5 = { { id = "rbxassetid://124412357054387", weight = 10 } },
 	kiblastleft = { { id = "rbxassetid://128096467742894", weight = 10 } },
 	kiblastright = { { id = "rbxassetid://116115922974989", weight = 10 } },
 
@@ -60,7 +65,7 @@ Animations.NAMES = {
 	lockedonboost = { { id = "rbxassetid://128819010878760", weight = 10 } },
 	gripped = { { id = "rbxassetid://78069186980168", weight = 10 } },
 	gripping = { { id = "rbxassetid://118609100407851", weight = 10 } },
-	scouterread = { { id = "rbxassetid://1162633226418657", weight = 10 } },
+	scouterread = { { id = "rbxassetid://83326593995138", weight = 10 } },
 	rest = { { id = "rbxassetid://70667321130064", weight = 10 } },
 }
 
@@ -71,6 +76,16 @@ Animations.LIGHT_ATTACK = {
 	Animations.NAMES.attack4[1].id,
 }
 Animations.LIGHT_ATTACK_COUNT = #Animations.LIGHT_ATTACK
+
+-- Flinch reactions cycled in order on each successive hit (see bindHitReactionAnimation).
+Animations.HIT_REACTION = {
+	Animations.NAMES.hit1[1].id,
+	Animations.NAMES.hit2[1].id,
+	Animations.NAMES.hit3[1].id,
+	Animations.NAMES.hit4[1].id,
+	Animations.NAMES.hit5[1].id,
+}
+Animations.HIT_REACTION_COUNT = #Animations.HIT_REACTION
 
 local animationCache: { [string]: Animation } = {}
 local tracksByAnimator = setmetatable({}, { __mode = "k" }) -- animator -> { [id]: track }
@@ -351,6 +366,44 @@ function Animations.bindKnockbackAnimation(character: Model): () -> ()
 		table.clear(connections)
 		Animations.stop(character, "knockback", 0.1)
 		Animations.stop(character, "recover", 0.1)
+	end
+end
+
+-- One-shot flinch when struck. HitStun.apply bumps the HitReaction counter on the victim (a counter,
+-- not a flag, so consecutive hits inside the stun window each re-fire the change signal). The reactions
+-- cycle hit1..hit5 in order for variety. Bound on the owning side -- the player's client and the
+-- server for shadows -- so the played track replicates, exactly like the knockback binding above.
+function Animations.bindHitReactionAnimation(character: Model): () -> ()
+	local connections: { RBXScriptConnection } = {}
+	local currentName: string? = nil
+
+	local function onChange()
+		local counter = character:GetAttribute("HitReaction") :: number?
+		if not counter or counter <= 0 then
+			return
+		end
+		if currentName then
+			Animations.stop(character, currentName, 0.05)
+		end
+		local index = ((counter - 1) % Animations.HIT_REACTION_COUNT) + 1
+		local name = "hit" .. index
+		currentName = name
+		local track = Animations.play(character, name, 0.1)
+		if track then
+			track.Looped = false
+		end
+	end
+
+	table.insert(connections, character:GetAttributeChangedSignal("HitReaction"):Connect(onChange))
+
+	return function()
+		for _, c in connections do
+			c:Disconnect()
+		end
+		table.clear(connections)
+		if currentName then
+			Animations.stop(character, currentName, 0.1)
+		end
 	end
 end
 

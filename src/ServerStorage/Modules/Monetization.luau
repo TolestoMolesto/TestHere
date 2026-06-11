@@ -237,6 +237,13 @@ function Monetization.getProductId(key: string): number?
 	return if def then def.id else nil
 end
 
+-- Display name for a pass key (nil if unknown). Used by the Mail system to label Pass rewards without
+-- re-hard-coding pass names outside this module.
+function Monetization.getPassName(key: string): string?
+	local def = PASSES[key]
+	return if def then def.name else nil
+end
+
 -- Per-join setup: register the gift-message receiver and fold real Roblox game-pass ownership into the
 -- persistent Shared.Passes map. Run before the character builds so a pass perk is known on first spawn.
 -- Yields on the ownership web calls.

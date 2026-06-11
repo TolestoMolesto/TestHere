@@ -1,6 +1,7 @@
 local ServerStorage = game:GetService("ServerStorage")
 
 local Manager = require(ServerStorage.Modules.Manager)
+local Age = require(ServerStorage.Modules.Age)
 local CombatState = require(ServerStorage.Modules.CombatState)
 local FormOverlay = require(ServerStorage.Modules.FormOverlay)
 local PlayerRaceBuilder = require(ServerStorage.Modules.PlayerRaceBuilder)
@@ -114,6 +115,13 @@ local function writeValues(folders: Folders, slot: any, shared: any)
 	bp = math.max(1, bp)
 	slot.BattlePower = bp
 
+	-- Ki suppression: the SHOWN BattlePower is scaled to the slot's chosen output % (1-100). Honoured
+	-- only when the slot owns the gating passive (PowerSuppression); otherwise forced to 100 = full BP.
+	-- `bp` above stays the TRUE value -- internal gates (Teleport access, etc.) read it, not the display.
+	local canSuppress = slot.PowerSuppression == true
+	local powerOutput = if canSuppress then math.clamp(slot.PowerOutput or 100, 1, 100) else 100
+	local displayedBP = math.max(1, math.floor(bp * powerOutput / 100))
+
 	-- Offense: each stat adds a soft-capped flat bonus on top of its own race/form layers.
 	local dmg = computeFinalNoAll(slot.Damage) + wire(bxp, W.DamageFromBxp)
 	local physdmg = computeFinalNoAll(slot.PhysicalDamage) + wire(str, W.PhysDmgFromStr)
@@ -147,9 +155,16 @@ local function writeValues(folders: Folders, slot: any, shared: any)
 	)
 
 	folders.Stats:SetAttribute("BattlePower", bp)
+	-- Suppression display: the reduced number the Scouter (others' lenses) + HUD read, plus the dial and
+	-- the gate so the HUD can show "Output: NN%" and hide it entirely when the passive isn't owned.
+	folders.Stats:SetAttribute("DisplayedBattlePower", displayedBP)
+	folders.Stats:SetAttribute("PowerOutput", powerOutput)
+	folders.Stats:SetAttribute("CanSuppress", canSuppress)
 	-- Plain meta numbers carried straight from the slot (HUD reads them off Humanoid.Stats).
 	folders.Stats:SetAttribute("Lives", slot.Lives)
 	folders.Stats:SetAttribute("Longevity", slot.Longevity)
+	-- Gravity tolerance; GravityServer reads + acclimates this live (1 for NPCs without the field).
+	folders.Stats:SetAttribute("GravityMastery", slot.GravityMastery or 1)
 	folders.Stats:SetAttribute("Strength", str)
 	folders.Stats:SetAttribute("Endurance", end_)
 	folders.Stats:SetAttribute("Speed", spd)
@@ -170,7 +185,9 @@ local function writeValues(folders: Folders, slot: any, shared: any)
 	folders.Stats:SetAttribute("MaxStamina", maxStamina)
 
 	folders.Appearance:SetAttribute("Gender", slot.Gender)
-	folders.Appearance:SetAttribute("Age", slot.Age)
+	-- Derived from PlayTime so the spawned attribute is always current, even if the cached slot.Age
+	-- mirror is stale (e.g. a legacy save). AgeServer keeps it live thereafter.
+	folders.Appearance:SetAttribute("Age", Age.ageOf(slot))
 	folders.Appearance:SetAttribute("Height", slot.Height)
 	folders.Appearance:SetAttribute("Hair", slot.Hair)
 	folders.Appearance:SetAttribute("HairColorR", slot.HairColor.R)

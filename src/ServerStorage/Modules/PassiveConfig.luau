@@ -12,6 +12,11 @@ export type PassiveDef = {
 	displayName: string,
 	type: "Passive", -- the unified inventory sort key (shared concept with Skills/Forms/Items)
 	race: string, -- "Any" (universal) or a race id; gates who sees it
+	-- Optional name of a per-slot boolean (a SlotData field) that must be true for this passive to count
+	-- as OWNED. nil = race-presence only (the original model). Lets ACQUIRED passives (e.g. Power
+	-- Suppression, granted server-side) live in the same roster without showing as owned for everyone --
+	-- the inventory's passives tab filters them on this flag (see ItemServer.GetPassives).
+	unlockFlag: string?,
 	description: {
 		note: string?,
 		summary: string,
@@ -29,6 +34,21 @@ local passives: { [string]: PassiveDef } = {
 			summary = "An innate awareness of the life energy around you. Lets you feel out the location "
 				.. "and strength of other fighters -- sensing power levels without a Scouter.",
 			effects = { "Senses nearby Ki / power levels" },
+		},
+	},
+
+	-- Acquired (not race-innate): only listed once the slot's PowerSuppression flag is set, which is
+	-- what unlocks the bracket-key / Settings output dial (see PowerOutputServer + PowerOutputController).
+	KiSuppression = {
+		displayName = "Power Suppression",
+		type = "Passive",
+		race = "Any",
+		unlockFlag = "PowerSuppression",
+		description = {
+			summary = "Mastery over your own energy lets you throttle how much of your power reads to the "
+				.. "outside world. Dial your output from 1% to 100% to hide your true strength from scouters "
+				.. "and trained senses -- or cut loose and reveal everything.",
+			effects = { "Adjust shown power output with [ and ]", "Masks your true Battle Power" },
 		},
 	},
 

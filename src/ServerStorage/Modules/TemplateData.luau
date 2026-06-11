@@ -41,6 +41,15 @@ export type SlotData = {
 	BattlePower: number,
 	Lives: number,
 	Longevity: number,
+	-- Ki suppression. PowerOutput is the % (1-100) of BattlePower the slot chooses to SHOW: scaled
+	-- down, the Scouter (what others read) and the HUD show a reduced number, while the TRUE BattlePower
+	-- still drives internal gates (Teleport access, etc.). Only adjustable when PowerSuppression -- the
+	-- gating passive -- is owned; otherwise StatsManager forces output to 100 (full BP shown).
+	PowerOutput: number,
+	PowerSuppression: boolean,
+	-- Gravity tolerance ("gravity mastery"): the max gravity multiple (x Earth) the slot can endure
+	-- before strain. Grows by acclimation under high gravity (see Gravity.luau); starts at 1 (Earth).
+	GravityMastery: number,
 	Strength: StatData,
 	Endurance: StatData,
 	Speed: StatData,
@@ -58,7 +67,13 @@ export type SlotData = {
 	Ki: ModStat,
 	Stamina: ModStat,
 	Gender: string,
+	-- Displayed character age (starts at 1). Derived from PlayTime by the Age module; persisted as a
+	-- convenience mirror -- PlayTime is the source of truth.
 	Age: number,
+	-- Accumulated ACTIVE-play seconds for this character (ticks only while you're actually playing this
+	-- slot -- nothing ages offline or on another slot). Drives Age + the kid->adult body scale; see
+	-- ServerStorage.Modules.Age and ServerScriptService.AgeServer.
+	PlayTime: number,
 	Height: string,
 	BodyColor: RGBColor,
 	HairColor: RGBColor,
@@ -88,6 +103,7 @@ export type SharedData = {
 	RedeemedCodes: { [string]: boolean }, -- normalised codes this account has already redeemed
 	PurchaseIds: { string }, -- rolling log of granted Dev Product PurchaseIds; makes ProcessReceipt idempotent
 	PurchasedSlots: number, -- character slots bought via the Slot dev product; gates the buyable cap (total slots are uncapped)
+	SeenBroadcasts: { [string]: boolean }, -- broadcast-mail ids already materialized into this inbox (dedupe; persists through deletion)
 }
 
 -- Account-wide client preferences. Mirrors ReplicatedStorage.Modules.Settings DEFAULTS. Saved
@@ -98,6 +114,30 @@ export type SettingsData = {
 	Camera: { Shake: boolean },
 }
 
+-- One reward line on a piece of mail. `kind` tags the union; the rest are read per-kind. Items route
+-- to the active slot at claim time; Spins/Pass are account-wide. Extensible (add "Unlock"/"Race" later).
+export type MailReward = {
+	kind: string, -- "Item" | "Spins" | "Pass"
+	itemId: string?, -- kind == "Item" (matches ItemConfig)
+	passKey: string?, -- kind == "Pass" (matches a Monetization PASSES key)
+	amount: number?, -- Item/Spins count; defaults to 1
+}
+
+-- One piece of mail in a player's account-wide inbox. Personal mail is appended directly; broadcast
+-- mail is materialized here from MailBroadcast (with broadcastId set) the first time it's seen.
+export type MailEntry = {
+	id: string, -- account-local unique id (HttpService GUID)
+	broadcastId: string?, -- set when materialized from a broadcast; the SeenBroadcasts dedupe key
+	from: string, -- sender display name ("Project Kaioshin", "World Boss", ...)
+	subject: string, -- short title shown in the list
+	body: string, -- description shown when opened
+	sentAt: number, -- os.time() when sent
+	expiresAt: number, -- sentAt + 7 days; pruned past this
+	rewards: { MailReward },
+	read: boolean,
+	claimed: boolean,
+}
+
 export type PlayerData = {
 	Version: number,
 	ActiveSlot: number,
@@ -105,6 +145,7 @@ export type PlayerData = {
 	Shared: SharedData,
 	Settings: SettingsData,
 	Keybinds: { [string]: string }, -- rebindable action id -> serialized bind; only non-default overrides
+	Mail: { MailEntry }, -- account-wide inbox (personal + materialized broadcasts); reward routing happens at claim time
 }
 
 -- Race "NA" signals RollRace that this slot is unrolled; first activation is free.
@@ -121,6 +162,9 @@ local SLOT_TEMPLATE: SlotData = {
 	BattlePower = 0,
 	Lives = 7,
 	Longevity = 100,
+	PowerOutput = 100, -- start fully un-suppressed (shows 100% of BattlePower)
+	PowerSuppression = false, -- the gating passive; granted server-side (see PowerOutputServer)
+	GravityMastery = 1,
 	Strength = { Base = 0, Flat = 0, Add = 0, Multi = 1 },
 	Endurance = { Base = 0, Flat = 0, Add = 0, Multi = 1 },
 	Speed = { Base = 0, Flat = 0, Add = 0, Multi = 1 },
@@ -138,7 +182,8 @@ local SLOT_TEMPLATE: SlotData = {
 	Ki = { Flat = 0, Add = 0, Multi = 1 },
 	Stamina = { Flat = 0, Add = 0, Multi = 1 },
 	Gender = "Male",
-	Age = 0,
+	Age = 1, -- everyone is born at age 1; grows from here as PlayTime accrues
+	PlayTime = 0,
 	Height = "Adult",
 	BodyColor = { R = -1, G = -1, B = -1 },
 	HairColor = { R = -1, G = -1, B = -1 },
@@ -158,6 +203,16 @@ local SLOT_TEMPLATE: SlotData = {
 }
 
 local PLAYER_DATA_TEMPLATE: PlayerData = {
+	-- v15: added account-wide Mail (top-level inbox array) + Shared.SeenBroadcasts (broadcast-mail dedupe
+	-- map) for the Mail system. Additive -- reconcileMail ensures the array exists; reconcileShared
+	-- backfills SeenBroadcasts onto existing saves (like RedeemedCodes).
+	-- v14: added per-slot PlayTime (active-play seconds) driving character Age + the kid->adult body
+	-- scale; Age now starts at 1 (was 0). Additive -- reconcileSlot/mergeDefaults backfill PlayTime=0.
+	-- v13: added per-slot PowerOutput (1-100 Ki-suppression %, the share of BattlePower shown on the
+	-- Scouter/HUD) + PowerSuppression (owns the gating passive). Additive -- reconcileSlot/mergeDefaults
+	-- backfill both onto existing saves (start 100% output, suppression locked).
+	-- v12: added per-slot GravityMastery (trained gravity tolerance; starts 1 = Earth). Additive --
+	-- reconcileSlot/mergeDefaults backfill it onto existing saves.
 	-- v11: added per-slot FormLoadout (equipped Forms/Techniques on keys 6-0; "" = empty), making the
 	-- 6-0 ability row rearrangeable like SkillLoadout.
 	-- v10: added per-slot Items (inventory map itemId -> count for the data-driven Items system).
@@ -171,7 +226,7 @@ local PLAYER_DATA_TEMPLATE: PlayerData = {
 	-- profiles start with 25 rolls. v5 added per-slot Lives + Longevity. v4 added UnlockedSkills +
 	-- SkillLoadout. All additive -- reconcileShared/reconcileSlot backfill onto existing saves, so no
 	-- version-gated migration is needed.
-	Version = 11,
+	Version = 15,
 	ActiveSlot = 1,
 	Slots = { SLOT_TEMPLATE },
 	Shared = {
@@ -191,6 +246,7 @@ local PLAYER_DATA_TEMPLATE: PlayerData = {
 		RedeemedCodes = {},
 		PurchaseIds = {},
 		PurchasedSlots = 0,
+		SeenBroadcasts = {},
 	},
 	Settings = {
 		Audio = { Music = 0.5, SFX = 0.5 },
@@ -198,6 +254,7 @@ local PLAYER_DATA_TEMPLATE: PlayerData = {
 		Camera = { Shake = true },
 	},
 	Keybinds = {},
+	Mail = {},
 }
 
 local function deepCopy<T>(value: T): T
@@ -261,6 +318,15 @@ local function reconcileKeybinds(data: any)
 	end
 end
 
+-- Mail is a top-level array (like Slots) that Reconcile() skips; it only needs to exist as a table --
+-- every entry's shape is trusted since the server controls all writes. The SeenBroadcasts dedupe map
+-- lives in Shared, so reconcileShared already backfills it (same as RedeemedCodes).
+local function reconcileMail(data: any)
+	if typeof(data.Mail) ~= "table" then
+		data.Mail = {}
+	end
+end
+
 return {
 	PLAYER_DATA_TEMPLATE = PLAYER_DATA_TEMPLATE,
 	SLOT_TEMPLATE = SLOT_TEMPLATE,
@@ -269,4 +335,5 @@ return {
 	reconcileSettings = reconcileSettings,
 	reconcileShared = reconcileShared,
 	reconcileKeybinds = reconcileKeybinds,
+	reconcileMail = reconcileMail,
 }

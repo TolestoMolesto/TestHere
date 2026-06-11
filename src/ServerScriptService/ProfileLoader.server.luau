@@ -78,6 +78,8 @@ local function onPlayerAdded(player: Player)
 	Template.reconcileKeybinds(profile.Data)
 	-- Shared's newer roller fields (RollCount/GlobalPity/RedeemedCodes) need the same backfill.
 	Template.reconcileShared(profile.Data)
+	-- Mail is a top-level array Reconcile() skips (SeenBroadcasts rides along in Shared, handled above).
+	Template.reconcileMail(profile.Data)
 
 	profile.OnSessionEnd:Connect(function()
 		Manager.Profiles[player] = nil

@@ -11,6 +11,11 @@ function HitStun.apply(entityCharacter: Model): ()
 	entityCharacter:SetAttribute("NoBlocking", true)
 	entityCharacter:SetAttribute("Stunned", true)
 
+	-- Drive the flinch reaction (Animations.bindHitReactionAnimation). A monotonic counter -- not a
+	-- flag -- so a re-hit inside the stun window still fires the binding's change signal.
+	local reaction = (entityCharacter:GetAttribute("HitReaction") :: number? or 0) + 1
+	entityCharacter:SetAttribute("HitReaction", reaction)
+
 	local gen = (generation[entityCharacter] or 0) + 1
 	generation[entityCharacter] = gen
 

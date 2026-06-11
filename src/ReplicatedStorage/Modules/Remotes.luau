@@ -67,6 +67,12 @@ local Remotes = {
 	GetKeybinds = declareFunction("GetKeybinds"),
 	UpdateKeybind = declareEvent("UpdateKeybind"),
 
+	-- Power output (Ki suppression): client pushes the desired output % (1-100) on a bracket-key step
+	-- or the Settings slider; the server clamps, gates on the PowerSuppression passive, writes the slot,
+	-- and re-derives Humanoid.Stats. The reduced readout replicates back through the Stats attributes
+	-- (DisplayedBattlePower / PowerOutput / CanSuppress), so no echo remote is needed.
+	SetPowerOutput = declareEvent("SetPowerOutput"),
+
 	-- Skill loadout UI: pull the active slot's sanitised catalogue + current 1-5 loadout, push one
 	-- (index, skillId) per equip/unequip. Skill balance data stays server-side (SkillConfig).
 	GetSkillLoadout = declareFunction("GetSkillLoadout"),
@@ -87,6 +93,16 @@ local Remotes = {
 	-- slot labels come from GetSkillLoadout; live cooldown/duration state is read from attributes.
 	GetFormBar = declareFunction("GetFormBar"),
 
+	-- Mail (account-wide inbox; MailServer + Mail). GetMail pulls the sanitised list (rewards resolved to
+	-- display info -- item config never crosses). ClaimMail is a RemoteFunction so the client gets back
+	-- { ok, reason, mail } (a claim can fail, e.g. the active slot is full). DeleteMail/MarkMailRead push
+	-- one mail id. MailChanged carries the fresh list (+ drives the unread badge) after any change/grant.
+	GetMail = declareFunction("GetMail"),
+	ClaimMail = declareFunction("ClaimMail"),
+	DeleteMail = declareEvent("DeleteMail"),
+	MarkMailRead = declareEvent("MarkMailRead"),
+	MailChanged = declareEvent("MailChanged"),
+
 	-- Form/Technique loadout (keys 6-0), the Forms counterpart to the Skill loadout: pull the race's
 	-- sanitised catalogue + the active slot's current 6-0 loadout, push one (index, formId) per change.
 	-- FormLoadoutChanged pokes the client (ActionBar + inventory) to re-pull after a change.
@@ -98,10 +114,16 @@ local Remotes = {
 	-- GetRollState: pull everything the panel shows on open (rolls, total, pity, races, globals).
 	-- RollSlot(confirmed): reroll the active slot; returns the new race, or a needs-confirmation flag
 	-- when it would destroy a held global. PickRace: resolve a pending global into a base race.
-	-- (Code redemption is a separate system, not wired here.)
+	-- (Code redemption is a separate system -- see RedeemCode below / CodesServer.)
 	GetRollState = declareFunction("GetRollState"),
 	RollSlot = declareFunction("RollSlot"),
 	PickRace = declareFunction("PickRace"),
+
+	-- Redeem codes (CodesServer + Codes). RemoteFunction: the client sends (code, source) -- source is
+	-- "MainMenu" or "Settings" so the server can keep race-gated codes to the in-game Settings box -- and
+	-- gets back { ok, message } to toast. The catalogue + one-time-per-account dedupe + reward delivery
+	-- (instant Spins/Passes, Items via mail) all stay server-side in Codes; only the result string crosses.
+	RedeemCode = declareFunction("RedeemCode"),
 
 	-- Main Menu (Play + Slots panel; MenuServer). All RemoteFunctions -- the client needs the result.
 	-- GetSlots: pull the slot roster (per-slot index/race/BattlePower/planet) + ActiveSlot + the buyable-
@@ -141,6 +163,53 @@ local Remotes = {
 	-- Monetization gifting: a recipient-picker fires this with (recipientUserId, passKey); the server
 	-- records the recipient and prompts the buyer to pay for the matching "Gift X" product (Monetization).
 	RequestGift = declareEvent("RequestGift"),
+
+	-- Party (a Leader + up to 5 others, 6 max; PartyServer + PartyState). In-server only, never
+	-- persisted. GetParty pulls the caller's current roster (nil when party-less). PartyUpdated pushes
+	-- the fresh roster (or nil) to every affected member after any change; PartyInviteReceived shows the
+	-- accept/decline prompt (fromDisplayName, fromUserId); PartyNotice carries a short toast string
+	-- (invite failures, joins, kicks, disband). The client sends a target Player for invite/kick/promote.
+	GetParty = declareFunction("GetParty"),
+	PartyUpdated = declareEvent("PartyUpdated"),
+	PartyNotice = declareEvent("PartyNotice"),
+	PartyInviteReceived = declareEvent("PartyInviteReceived"),
+	RequestPartyInvite = declareEvent("RequestPartyInvite"),
+	RespondPartyInvite = declareEvent("RespondPartyInvite"),
+	LeaveParty = declareEvent("LeaveParty"),
+	KickFromParty = declareEvent("KickFromParty"),
+	PromoteLeader = declareEvent("PromoteLeader"),
+	DisbandParty = declareEvent("DisbandParty"),
+
+	-- Spar (consensual 1v1 "training duel"; SparServer + Spar). The client sends a target Player to
+	-- RequestSpar (challenge) and a boolean to RespondSpar (accept/decline); EndSpar forfeits the
+	-- caller's bout. Server -> client: SparInvite shows the challenge prompt (fromDisplayName,
+	-- fromUserId); SparStarted opens the bout HUD (opponentDisplayName, opponentUserId); SparEnded
+	-- closes it with a result string ("win" | "loss" | "interrupted" | "ended"); SparNotice is a short
+	-- toast (challenge failures). The bout never combat-tags the fighters and never kills.
+	RequestSpar = declareEvent("RequestSpar"),
+	RespondSpar = declareEvent("RespondSpar"),
+	EndSpar = declareEvent("EndSpar"),
+	SparInvite = declareEvent("SparInvite"),
+	SparStarted = declareEvent("SparStarted"),
+	SparEnded = declareEvent("SparEnded"),
+	SparNotice = declareEvent("SparNotice"),
+
+	-- Gravity Chamber (GravityChamberServer + GravityChamberController). Only the GravityChamber place
+	-- runs a live chamber; GetChamberState returns nil elsewhere so the client hides its panel. State =
+	-- { multiplier, ownerUserId }. The owner (first in, auto-reassigned on leave) is the only one whose
+	-- RequestChamberGravity (an absolute x-Earth target; server floors it, no real ceiling) is honoured;
+	-- TransferChamberOwner hands control to another player. ChamberStateChanged pushes fresh state to all.
+	GetChamberState = declareFunction("GetChamberState"),
+	ChamberStateChanged = declareEvent("ChamberStateChanged"),
+	RequestChamberGravity = declareEvent("RequestChamberGravity"),
+	TransferChamberOwner = declareEvent("TransferChamberOwner"),
+
+	-- Kai-only weight granting (WeightsServer + the Party panel's "Gravity" tab). GetWeightGrant tells the
+	-- client whether the local player's active slot is a Kai and their tonnage ceiling (gravity mastery);
+	-- SetMemberWeight(targetPlayer, tonnage) asks the server to equip/clear a party member's weights
+	-- (validated: caller is a Kai, target is in their party, tonnage clamped to [0.25, mastery]).
+	GetWeightGrant = declareFunction("GetWeightGrant"),
+	SetMemberWeight = declareEvent("SetMemberWeight"),
 }
 
 return Remotes

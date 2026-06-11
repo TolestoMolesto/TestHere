@@ -12,6 +12,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Keybinds = require(ReplicatedStorage.Modules.Keybinds)
 local KeybindConfig = require(ReplicatedStorage.Modules.KeybindConfig)
+local Remotes = require(ReplicatedStorage.Modules.Remotes)
 local Settings = require(ReplicatedStorage.Modules.Settings)
 
 local player = Players.LocalPlayer
@@ -24,6 +25,7 @@ local ACCENT = Color3.fromRGB(255, 176, 32)
 local ON_COLOR = Color3.fromRGB(96, 200, 120)
 local OFF_COLOR = Color3.fromRGB(70, 72, 82)
 local TEXT_COLOR = Color3.fromRGB(238, 240, 245)
+local BAD_COLOR = Color3.fromRGB(235, 110, 110)
 
 type Row = {
 	kind: string,
@@ -491,6 +493,232 @@ for _, section in SECTIONS do
 		end
 	end
 end
+
+-- Combat -> Power Output (Ki suppression). Unlike every row above, this value is PER-SLOT: it lives on
+-- Humanoid.Stats (written by StatsManager), not the global Settings blob. So this bespoke slider reads
+-- the live attribute and pushes via the SetPowerOutput remote instead of Settings.get/set, and the whole
+-- section hides until the slot owns the passive (Stats.CanSuppress) -- mirroring the HUD readout and the
+-- bracket-key dial. It's the same drag-slider visuals as buildSlider, just bound to a different source.
+local POWER_MIN = 1
+local POWER_MAX = 100
+
+local combatHeader = makeRowFrame(0.09)
+local combatHeaderLabel = makeLabel(combatHeader, "Combat", 0.5, 0.5, 0.96, 0.7, Enum.TextXAlignment.Left, 18)
+combatHeaderLabel.Font = Enum.Font.GothamBold
+combatHeaderLabel.TextColor3 = ACCENT
+
+local powerCard = controlRow({ kind = "slider", section = "Power", key = "Output", label = "Power Output" })
+local powerOuter = powerCard.Parent :: Frame
+
+local powerTrack = Instance.new("Frame")
+powerTrack.AnchorPoint = Vector2.new(0.5, 0.5)
+powerTrack.Position = UDim2.fromScale(0.65, 0.5)
+powerTrack.Size = UDim2.fromScale(0.38, 0.16)
+powerTrack.BackgroundColor3 = TRACK_BG
+corner(powerTrack, 0.5)
+powerTrack.Parent = powerCard
+
+local powerFill = Instance.new("Frame")
+powerFill.AnchorPoint = Vector2.new(0.5, 0.5)
+powerFill.Position = UDim2.fromScale(0, 0.5)
+powerFill.Size = UDim2.fromScale(0, 1)
+powerFill.BackgroundColor3 = ACCENT
+corner(powerFill, 0.5)
+powerFill.Parent = powerTrack
+
+local powerHandle = Instance.new("Frame")
+powerHandle.AnchorPoint = Vector2.new(0.5, 0.5)
+powerHandle.Position = UDim2.fromScale(0, 0.5)
+powerHandle.Size = UDim2.fromScale(0.045, 1.7)
+powerHandle.BackgroundColor3 = TEXT_COLOR
+corner(powerHandle, 0.5)
+powerHandle.Parent = powerTrack
+
+local powerValueLabel = makeLabel(powerCard, "", 0.93, 0.5, 0.12, 0.6, Enum.TextXAlignment.Right, 14)
+
+local powerCatcher = Instance.new("ImageButton")
+powerCatcher.AnchorPoint = Vector2.new(0.5, 0.5)
+powerCatcher.Position = UDim2.fromScale(0.5, 0.5)
+powerCatcher.Size = UDim2.fromScale(1, 3)
+powerCatcher.BackgroundTransparency = 1
+powerCatcher.Image = ""
+powerCatcher.ScaleType = Enum.ScaleType.Fit
+powerCatcher.Parent = powerTrack
+
+local function powerApplyVisual(num: number): ()
+	local ratio = math.clamp((num - POWER_MIN) / (POWER_MAX - POWER_MIN), 0, 1)
+	powerFill.Position = UDim2.fromScale(ratio / 2, 0.5)
+	powerFill.Size = UDim2.fromScale(ratio, 1)
+	powerHandle.Position = UDim2.fromScale(ratio, 0.5)
+	powerValueLabel.Text = tostring(math.floor(num + 0.5)) .. "%"
+end
+
+local function powerValueFromX(px: number): number
+	local ratio = math.clamp((px - powerTrack.AbsolutePosition.X) / powerTrack.AbsoluteSize.X, 0, 1)
+	return math.floor(POWER_MIN + ratio * (POWER_MAX - POWER_MIN) + 0.5)
+end
+
+-- The local character's Humanoid.Stats folder, resolved live so respawns need no special handling.
+local function getLocalStats(): Folder?
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local stats = humanoid and humanoid:FindFirstChild("Stats")
+	return if stats and stats:IsA("Folder") then stats else nil
+end
+
+local powerDragging = false
+local powerLastSent: number? = nil
+
+-- Live drag: move the handle and push the value as it changes (the server clamps + gates). Skip the
+-- push when the value hasn't moved so a held drag isn't remote spam (same trick as buildSlider).
+local function powerCommit(px: number): ()
+	local v = powerValueFromX(px)
+	powerApplyVisual(v)
+	if v ~= powerLastSent then
+		powerLastSent = v
+		Remotes.SetPowerOutput:FireServer(v)
+	end
+end
+
+powerCatcher.InputBegan:Connect(function(input: InputObject): ()
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		powerDragging = true
+		powerCommit(input.Position.X)
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input: InputObject): ()
+	if
+		powerDragging
+		and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch)
+	then
+		powerCommit(input.Position.X)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input: InputObject): ()
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		powerDragging = false
+	end
+end)
+
+-- Reflect the live attributes: hide the whole section until the passive is owned, and (when not mid-
+-- drag) snap the slider to the current output value.
+local function powerRefresh(): ()
+	local stats = getLocalStats()
+	local canSuppress = stats ~= nil and stats:GetAttribute("CanSuppress") == true
+	combatHeader.Visible = canSuppress
+	powerOuter.Visible = canSuppress
+	if stats and not powerDragging then
+		local raw = stats:GetAttribute("PowerOutput")
+		powerApplyVisual(if typeof(raw) == "number" then raw else POWER_MAX)
+	end
+end
+
+local powerConnections: { RBXScriptConnection } = {}
+
+local function powerBind(): ()
+	for _, c in powerConnections do
+		c:Disconnect()
+	end
+	table.clear(powerConnections)
+	local stats = getLocalStats()
+	if stats then
+		table.insert(powerConnections, stats:GetAttributeChangedSignal("PowerOutput"):Connect(powerRefresh))
+		table.insert(powerConnections, stats:GetAttributeChangedSignal("CanSuppress"):Connect(powerRefresh))
+	end
+	powerRefresh()
+end
+
+player.CharacterAdded:Connect(function(character: Model): ()
+	-- The Stats folder lands a beat after the character; wait for it, then (re)bind to the new humanoid.
+	task.spawn(function(): ()
+		local humanoid = character:WaitForChild("Humanoid", 5)
+		if humanoid then
+			humanoid:WaitForChild("Stats", 5)
+		end
+		if player.Character == character then
+			powerBind()
+		end
+	end)
+end)
+powerBind()
+
+-- Codes section: redeem a code for rewards. Account-wide rewards (Spins/Passes) apply instantly; item
+-- rewards are sent to the mailbox to claim. Unlike the Main Menu code box, race-gated codes CAN be
+-- redeemed here -- the server checks the active slot's race (we pass source = "Settings"). Appended to
+-- the General tab's scroller, so it shows/hides + scrolls with the rest of the rows.
+makeHeader("Codes")
+
+local codeOuter = makeRowFrame(0.15)
+local codeCard = Instance.new("Frame")
+codeCard.AnchorPoint = Vector2.new(0.5, 0.5)
+codeCard.Position = UDim2.fromScale(0.5, 0.5)
+codeCard.Size = UDim2.fromScale(1, 0.82)
+codeCard.BackgroundColor3 = ROW_BG
+codeCard.BackgroundTransparency = 0.35
+corner(codeCard, 0.28)
+codeCard.Parent = codeOuter
+
+local codeBox = Instance.new("TextBox")
+codeBox.AnchorPoint = Vector2.new(0.5, 0.5)
+codeBox.Position = UDim2.fromScale(0.38, 0.5)
+codeBox.Size = UDim2.fromScale(0.66, 0.56)
+codeBox.BackgroundColor3 = TRACK_BG
+codeBox.ClearTextOnFocus = false
+codeBox.Font = Enum.Font.Gotham
+codeBox.PlaceholderText = "Enter code"
+codeBox.PlaceholderColor3 = TEXT_DIM
+codeBox.Text = ""
+codeBox.TextColor3 = TEXT_COLOR
+codeBox.TextScaled = true
+constrainText(codeBox, 8, 16)
+corner(codeBox, 0.3)
+stroke(codeBox, 0.02, ACCENT, 0.4)
+codeBox.Parent = codeCard
+
+local redeemButton = makeButton(codeCard, "Redeem", 0.85, 0.5, 0.24, 0.62, 15)
+redeemButton.BackgroundColor3 = TRACK_BG
+stroke(redeemButton, 0.02, ACCENT, 0.4)
+
+local codeStatusRow = makeRowFrame(0.07)
+local codeStatus = makeLabel(codeStatusRow, "", 0.5, 0.5, 0.96, 0.85, Enum.TextXAlignment.Center, 13)
+codeStatus.TextColor3 = TEXT_DIM
+
+local redeeming = false
+local function submitCode(): ()
+	if redeeming then
+		return
+	end
+	if (codeBox.Text:gsub("%s+", "")) == "" then
+		codeStatus.Text = "Enter a code"
+		codeStatus.TextColor3 = BAD_COLOR
+		return
+	end
+	redeeming = true
+	redeemButton.Text = "..."
+	local res = Remotes.RedeemCode:InvokeServer(codeBox.Text, "Settings") :: { ok: boolean?, message: string? }?
+	redeeming = false
+	redeemButton.Text = "Redeem"
+	if typeof(res) == "table" then
+		local ok = res.ok == true
+		codeStatus.Text = res.message or (if ok then "Redeemed!" else "Couldn't redeem")
+		codeStatus.TextColor3 = if ok then ON_COLOR else BAD_COLOR
+		if ok then
+			codeBox.Text = ""
+		end
+	else
+		codeStatus.Text = "Couldn't redeem"
+		codeStatus.TextColor3 = BAD_COLOR
+	end
+end
+
+redeemButton.Activated:Connect(submitCode)
+codeBox.FocusLost:Connect(function(enterPressed: boolean): ()
+	if enterPressed then
+		submitCode()
+	end
+end)
 
 -- Hotkeys tab: a rebind row per KeybindConfig action, grouped + ordered. ------------------------
 

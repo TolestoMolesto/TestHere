@@ -13,6 +13,7 @@
 local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 
+local Gravity = require(ServerStorage.Modules.Gravity)
 local Manager = require(ServerStorage.Modules.Manager)
 local StatsManager = require(ServerStorage.Modules.StatsManager)
 
@@ -59,6 +60,19 @@ local REFRESH_INTERVAL = 3
 -- (which bank more stats per event) are more Longevity-efficient than M1 spam -- intended.
 local LONGEVITY_DRAIN_MIN = 0.1
 local LONGEVITY_DRAIN_MAX = 0.3
+
+-- High-gravity training is more TIRING: the per-event Longevity drain scales by the gravity training
+-- bonus raised to this exponent (0.5 = sqrt). Total gains per Longevity pool then scale with
+-- bonus^(1 - exp), so high gravity still nets MORE per pool (the bonus outruns the drain) but Longevity
+-- keeps it from being a free lunch. Set to 0 to decouple (flat drain regardless of gravity).
+local LONGEVITY_GRAVITY_DRAIN_EXP = 0.5
+
+-- Training weights (the WeightTraining / Weight attributes the ToggleWeights item sets on the
+-- character) accelerate every gain: heavier weights, faster growth. The multiplier is
+-- 1 + Weight * WEIGHT_GAIN_PER_TON, so the 0.25-ton starter set pays 1.25x and each extra ton adds
+-- another full base's worth. It rides on top of opponent scaling and diminishing returns, and only
+-- counts while the weights are actually worn (the flag is cleared on unequip and on respawn).
+local WEIGHT_GAIN_PER_TON = 1.0
 -- ====================================================================================
 
 local pendingRefresh = setmetatable({} :: { [Player]: boolean }, { __mode = "k" })
@@ -89,7 +103,20 @@ local function opponentMult(opponent: Model?): number
 	return if Players:GetPlayerFromCharacter(opponent) then OPPONENT_MULT.Player else OPPONENT_MULT.Dummy
 end
 
--- Internal: apply one stat's diminished, opponent-scaled gain to an already-fetched slot.
+-- Weights worn on the trainee scale every gain up. Reads the live character attributes the
+-- ToggleWeights item writes; returns 1 (no change) whenever weights are off or the amount is missing.
+local function weightMult(character: Model): number
+	if character:GetAttribute("WeightTraining") ~= true then
+		return 1
+	end
+	local weight = character:GetAttribute("Weight")
+	if type(weight) ~= "number" then
+		return 1
+	end
+	return 1 + weight * WEIGHT_GAIN_PER_TON
+end
+
+-- Internal: apply one stat's diminished, mult-scaled gain to an already-fetched slot.
 local function applyGain(slot: any, statName: string, amount: number, mult: number): ()
 	local stat = slot[statName]
 	if stat and stat.Base ~= nil then
@@ -113,12 +140,17 @@ function Train.awardMany(character: Model, gains: { [string]: number }, opponent
 	if slot.Longevity <= 0 then
 		return
 	end
-	local mult = opponentMult(opponent)
+	-- Weights AND ambient gravity scale the trainee's own gains (training under gravity you've
+	-- mastered banks faster, like weights); opponent scaling rides on top.
+	local gravityMult = Gravity.trainMult(character)
+	local mult = opponentMult(opponent) * weightMult(character) * gravityMult
 	for statName, amount in gains do
 		applyGain(slot, statName, amount, mult)
 	end
-	-- Spend a small random slice of Longevity for the gains just banked.
-	slot.Longevity = math.max(0, slot.Longevity - RNG:NextNumber(LONGEVITY_DRAIN_MIN, LONGEVITY_DRAIN_MAX))
+	-- Spend a random slice of Longevity, scaled up by the gravity bonus so high-G training tires you
+	-- faster (still net-positive per pool -- see LONGEVITY_GRAVITY_DRAIN_EXP).
+	local drain = RNG:NextNumber(LONGEVITY_DRAIN_MIN, LONGEVITY_DRAIN_MAX) * gravityMult ^ LONGEVITY_GRAVITY_DRAIN_EXP
+	slot.Longevity = math.max(0, slot.Longevity - drain)
 	requestRefresh(player)
 end
 
